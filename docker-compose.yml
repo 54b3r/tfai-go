@@ -1,0 +1,103 @@
+version: "3.9"
+
+services:
+  # ── TF-AI application ────────────────────────────────────────────────────────
+  tfai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tfai-go:local
+    container_name: tfai
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - LANGFUSE_HOST=http://langfuse:3000
+    volumes:
+      # Mount local terraform workspaces into the container for file access.
+      - ${TFAI_WORKSPACE:-./workspace}:/workspace
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tfai-net
+
+  # ── Qdrant vector store ───────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.12.0
+    container_name: tfai-qdrant
+    ports:
+      - "6333:6333"   # HTTP API
+      - "6334:6334"   # gRPC API
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - tfai-net
+
+  # ── Langfuse observability ────────────────────────────────────────────────────
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: tfai-langfuse
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      - NEXTAUTH_SECRET=change-me-in-production
+      - NEXTAUTH_URL=http://localhost:3000
+      - SALT=change-me-in-production
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tfai-net
+
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: tfai-langfuse-db
+    environment:
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=langfuse
+      - POSTGRES_DB=langfuse
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - tfai-net
+
+  # ── Ollama (optional local model server) ─────────────────────────────────────
+  # Uncomment to run a local Ollama instance alongside the stack.
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: tfai-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   restart: unless-stopped
+  #   networks:
+  #     - tfai-net
+
+volumes:
+  qdrant-data:
+  langfuse-db-data:
+  # ollama-data:
+
+networks:
+  tfai-net:
+    driver: bridge

@@ -1,0 +1,174 @@
+// Package agent wires together the Eino ChatModelAgent with the Terraform-specific
+// tools and RAG retriever to form the core TF-AI assistant.
+// The agent handles the full ReAct loop: it decides when to call tools,
+// when to query the RAG retriever for context, and when to respond directly.
+package agent
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/flow/agent/react"
+	"github.com/cloudwego/eino/schema"
+
+	"github.com/54b3r/tfai-go/internal/rag"
+)
+
+// systemPrompt is the base system prompt injected into every conversation.
+// It establishes the agent's persona, capabilities, and operating constraints.
+const systemPrompt = `You are TF-AI, an expert Terraform engineer and cloud infrastructure consultant.
+
+You assist platform engineers and consultants with:
+- Generating production-grade Terraform code for AWS, Azure, and GCP
+- Diagnosing terraform plan and apply failures
+- Advising on Terraform state management and recovery
+- Designing secure, well-structured Terraform modules
+- Following cloud provider best practices and security baselines
+
+When generating Terraform code:
+- Always use the latest stable provider versions unless told otherwise
+- Apply security best practices by default (encryption at rest/transit, least-privilege IAM, private endpoints)
+- Structure code into logical files: main.tf, variables.tf, outputs.tf, versions.tf
+- Include meaningful comments explaining non-obvious decisions
+- Use the terraform_generate tool to write files to disk when the user wants to save the output
+
+When diagnosing issues:
+- Use terraform_plan to inspect the current plan before advising
+- Use terraform_state to inspect resource state when diagnosing drift or corruption
+- Be specific about root causes and provide step-by-step remediation
+
+Always be concise, accurate, and production-focused.`
+
+// Config holds the dependencies required to construct a TerraformAgent.
+type Config struct {
+	// ChatModel is the LLM backend constructed by the provider factory.
+	ChatModel model.ChatModel
+
+	// Tools is the list of Terraform tools available to the agent.
+	Tools []tool.BaseTool
+
+	// Retriever is the RAG retriever for Terraform documentation context.
+	// May be nil if RAG is not configured.
+	Retriever rag.Retriever
+
+	// RAGTopK controls how many RAG documents are injected per query.
+	// Defaults to 5 if zero.
+	RAGTopK int
+}
+
+// TerraformAgent wraps the Eino ReAct agent with Terraform-specific behaviour,
+// including optional RAG context injection before each query.
+type TerraformAgent struct {
+	// reactAgent is the underlying Eino ReAct loop agent.
+	reactAgent *react.Agent
+
+	// retriever is the optional RAG retriever for documentation context.
+	retriever rag.Retriever
+
+	// ragTopK is the number of RAG documents to inject per query.
+	ragTopK int
+}
+
+// New constructs a TerraformAgent from the provided Config.
+func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
+	if cfg.ChatModel == nil {
+		return nil, fmt.Errorf("agent: ChatModel must not be nil")
+	}
+
+	topK := cfg.RAGTopK
+	if topK <= 0 {
+		topK = 5
+	}
+
+	agentCfg := &react.AgentConfig{
+		Model: cfg.ChatModel,
+		ToolsConfig: compose.ToolsNodeConfig{
+			Tools: cfg.Tools,
+		},
+	}
+
+	reactAgent, err := react.NewAgent(ctx, agentCfg)
+	if err != nil {
+		return nil, fmt.Errorf("agent: failed to create ReAct agent: %w", err)
+	}
+
+	return &TerraformAgent{
+		reactAgent: reactAgent,
+		retriever:  cfg.Retriever,
+		ragTopK:    topK,
+	}, nil
+}
+
+// Query sends a user message to the agent and streams the response to the
+// provided writer. If a RAG retriever is configured, relevant documentation
+// context is prepended to the message before it reaches the LLM.
+func (a *TerraformAgent) Query(ctx context.Context, userMessage string, w io.Writer) error {
+	messages, err := a.buildMessages(ctx, userMessage)
+	if err != nil {
+		return fmt.Errorf("agent: failed to build messages: %w", err)
+	}
+
+	sr, err := a.reactAgent.Stream(ctx, messages)
+	if err != nil {
+		return fmt.Errorf("agent: stream failed: %w", err)
+	}
+	defer sr.Close()
+
+	for {
+		msg, err := sr.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("agent: stream receive error: %w", err)
+		}
+		if msg != nil && msg.Content != "" {
+			if _, err := fmt.Fprint(w, msg.Content); err != nil {
+				return fmt.Errorf("agent: write error: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// buildMessages constructs the message slice for the agent, optionally
+// prepending RAG context retrieved for the user's query.
+func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage string) ([]*schema.Message, error) {
+	messages := []*schema.Message{
+		schema.SystemMessage(systemPrompt),
+	}
+
+	if a.retriever != nil {
+		docs, err := a.retriever.Retrieve(ctx, userMessage, a.ragTopK)
+		if err != nil {
+			// RAG failure is non-fatal — log and continue without context.
+			// TODO: wire in a logger here.
+			_ = err
+		} else if len(docs) > 0 {
+			ragContext := buildRAGContext(docs)
+			messages = append(messages, schema.SystemMessage(ragContext))
+		}
+	}
+
+	messages = append(messages, schema.UserMessage(userMessage))
+	return messages, nil
+}
+
+// buildRAGContext formats retrieved documents into a system message that
+// provides the LLM with relevant Terraform documentation context.
+func buildRAGContext(docs []rag.Document) string {
+	context := "## Relevant Terraform Documentation\n\n" +
+		"The following documentation excerpts are relevant to the user's query. " +
+		"Use them to inform your response where applicable.\n\n"
+
+	for i, doc := range docs {
+		context += fmt.Sprintf("### Source %d: %s\n%s\n\n", i+1, doc.Source, doc.Content)
+	}
+
+	return context
+}

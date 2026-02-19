@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TF-AI — Terraform Expert Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2a2d3a;
+      --accent:    #7c3aed;
+      --accent-lt: #a78bfa;
+      --text:      #e2e8f0;
+      --text-muted:#94a3b8;
+      --code-bg:   #0d1117;
+      --user-bg:   #1e293b;
+      --ai-bg:     #1a1d27;
+      --success:   #10b981;
+      --warning:   #f59e0b;
+      --error:     #ef4444;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    header .logo {
+      width: 32px; height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px; color: #fff;
+    }
+    header h1 { font-size: 16px; font-weight: 600; }
+    header .subtitle { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
+    header .provider-badge {
+      margin-left: auto;
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: var(--border);
+      color: var(--text-muted);
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 260px;
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 12px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .workspace-input {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .workspace-input input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text);
+      outline: none;
+    }
+    .workspace-input input:focus { border-color: var(--accent); }
+    .workspace-input button {
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #fff;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .file-tree {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text-muted);
+      border-radius: 4px;
+      margin: 0 4px;
+    }
+    .file-item:hover { background: var(--border); color: var(--text); }
+    .file-item .icon { font-size: 14px; }
+    .file-item.dir { color: var(--accent-lt); }
+    .sidebar-actions {
+      padding: 12px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .sidebar-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .sidebar-btn:hover { border-color: var(--accent); color: var(--text); }
+
+    /* ── Chat panel ── */
+    .chat-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .message {
+      display: flex;
+      gap: 12px;
+      max-width: 860px;
+      width: 100%;
+      align-self: flex-start;
+    }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .avatar {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .message.user .avatar { background: var(--accent); }
+    .message.ai .avatar   { background: #1e3a5f; }
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      max-width: 780px;
+    }
+    .message.user .bubble {
+      background: var(--user-bg);
+      border: 1px solid var(--border);
+      border-top-right-radius: 2px;
+    }
+    .message.ai .bubble {
+      background: var(--ai-bg);
+      border: 1px solid var(--border);
+      border-top-left-radius: 2px;
+    }
+    .bubble pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+      font-size: 13px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    .bubble code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; }
+    .bubble p { margin: 6px 0; }
+    .bubble ul, .bubble ol { padding-left: 20px; margin: 6px 0; }
+
+    .typing-indicator {
+      display: flex;
+      gap: 4px;
+      padding: 8px 0;
+      align-items: center;
+    }
+    .typing-indicator span {
+      width: 6px; height: 6px;
+      background: var(--accent-lt);
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30%            { transform: translateY(-6px); }
+    }
+
+    /* ── Input bar ── */
+    .input-bar {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    .input-row textarea {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14px;
+      color: var(--text);
+      resize: none;
+      outline: none;
+      min-height: 48px;
+      max-height: 180px;
+      font-family: inherit;
+      line-height: 1.5;
+    }
+    .input-row textarea:focus { border-color: var(--accent); }
+    .input-row textarea::placeholder { color: var(--text-muted); }
+    .send-btn {
+      width: 44px; height: 44px;
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .send-btn:hover { background: #6d28d9; }
+    .send-btn:disabled { background: var(--border); cursor: not-allowed; }
+    .input-hints {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .hint-chip {
+      padding: 4px 10px;
+      background: var(--border);
+      border-radius: 20px;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+    }
+    .hint-chip:hover { background: var(--accent); color: #fff; }
+
+    /* ── Welcome ── */
+    .welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 40px;
+      text-align: center;
+    }
+    .welcome .big-logo {
+      width: 64px; height: 64px;
+      background: var(--accent);
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px;
+    }
+    .welcome h2 { font-size: 22px; font-weight: 600; }
+    .welcome p  { color: var(--text-muted); font-size: 14px; max-width: 480px; line-height: 1.6; }
+    .welcome-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      max-width: 600px;
+      margin-top: 8px;
+    }
+    .welcome-chip {
+      padding: 8px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text-muted);
+      text-align: left;
+    }
+    .welcome-chip:hover { border-color: var(--accent); color: var(--text); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">TF</div>
+  <h1>TF-AI</h1>
+  <span class="subtitle">Terraform Expert Agent</span>
+  <span class="provider-badge" id="providerBadge">● ollama</span>
+</header>
+
+<div class="layout">
+  <!-- Sidebar: workspace file tree -->
+  <aside class="sidebar">
+    <div class="sidebar-header">Workspace</div>
+    <div class="workspace-input">
+      <input type="text" id="workspaceDir" placeholder="/path/to/terraform/project" />
+      <button onclick="loadWorkspace()">→</button>
+    </div>
+    <div class="file-tree" id="fileTree">
+      <div style="padding: 16px; font-size: 12px; color: var(--text-muted); text-align: center;">
+        Enter a workspace path above to browse files
+      </div>
+    </div>
+    <div class="sidebar-actions">
+      <button class="sidebar-btn" onclick="insertPrompt('Run terraform plan in my workspace and explain the changes')">
+        📋 Analyse Plan
+      </button>
+      <button class="sidebar-btn" onclick="insertPrompt('Review my terraform code for security issues and best practices')">
+        🔒 Security Review
+      </button>
+      <button class="sidebar-btn" onclick="insertPrompt('Show me the current state of all managed resources')">
+        📊 Inspect State
+      </button>
+    </div>
+  </aside>
+
+  <!-- Chat panel -->
+  <main class="chat-panel">
+    <div class="messages" id="messages">
+      <div class="welcome" id="welcome">
+        <div class="big-logo">🏗️</div>
+        <h2>TF-AI Terraform Expert</h2>
+        <p>Your AI-powered Terraform engineer. Generate infrastructure code, diagnose failures, and get expert guidance across AWS, Azure, and GCP.</p>
+        <div class="welcome-chips">
+          <button class="welcome-chip" onclick="insertPrompt('Generate an EKS cluster with IRSA, private endpoints, and managed node groups')">
+            ☁️ EKS cluster with IRSA
+          </button>
+          <button class="welcome-chip" onclick="insertPrompt('Generate an AKS cluster with Azure CNI and workload identity on Azure')">
+            ☁️ AKS with workload identity
+          </button>
+          <button class="welcome-chip" onclick="insertPrompt('Generate a GKE cluster with Workload Identity and private nodes on GCP')">
+            ☁️ GKE with Workload Identity
+          </button>
+          <button class="welcome-chip" onclick="insertPrompt('Why did my terraform apply fail? How do I diagnose it?')">
+            🔍 Diagnose apply failure
+          </button>
+          <button class="welcome-chip" onclick="insertPrompt('How do I recover from a corrupted or locked terraform state file?')">
+            🛠️ Fix corrupted state
+          </button>
+          <button class="welcome-chip" onclick="insertPrompt('What is the best way to structure a multi-account AWS Terraform setup?')">
+            🏛️ Multi-account AWS structure
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-bar">
+      <div class="input-row">
+        <textarea
+          id="userInput"
+          placeholder="Ask anything about Terraform — generate code, diagnose failures, review state..."
+          rows="1"
+          onkeydown="handleKey(event)"
+          oninput="autoResize(this)"
+        ></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">↑</button>
+      </div>
+      <div class="input-hints">
+        <button class="hint-chip" onclick="insertPrompt('Generate a secure S3 bucket with versioning and encryption')">S3 bucket</button>
+        <button class="hint-chip" onclick="insertPrompt('Create a VPC with public and private subnets across 3 AZs')">VPC layout</button>
+        <button class="hint-chip" onclick="insertPrompt('Generate IAM roles with least-privilege policies for EKS node groups')">IAM roles</button>
+        <button class="hint-chip" onclick="insertPrompt('How do I use terraform workspaces for environment separation?')">Workspaces</button>
+        <button class="hint-chip" onclick="insertPrompt('Generate a Terraform module structure for a reusable EKS cluster')">Module structure</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  let isStreaming = false;
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function insertPrompt(text) {
+    const input = document.getElementById('userInput');
+    input.value = text;
+    autoResize(input);
+    input.focus();
+  }
+
+  function hideWelcome() {
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
+  }
+
+  function appendMessage(role, content) {
+    hideWelcome();
+    const messages = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+    div.innerHTML = `
+      <div class="avatar">${role === 'user' ? '👤' : '🤖'}</div>
+      <div class="bubble" id="bubble-${Date.now()}">${escapeHtml(content)}</div>
+    `;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+    return div.querySelector('.bubble');
+  }
+
+  function appendStreamingMessage() {
+    hideWelcome();
+    const messages = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = 'message ai';
+    const id = 'stream-' + Date.now();
+    div.innerHTML = `
+      <div class="avatar">🤖</div>
+      <div class="bubble" id="${id}">
+        <div class="typing-indicator"><span></span><span></span><span></span></div>
+      </div>
+    `;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+    return document.getElementById(id);
+  }
+
+  function escapeHtml(text) {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function renderMarkdown(text) {
+    // Minimal markdown: code blocks, inline code, bold
+    return text
+      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+  }
+
+  async function sendMessage() {
+    if (isStreaming) return;
+    const input = document.getElementById('userInput');
+    const message = input.value.trim();
+    if (!message) return;
+
+    input.value = '';
+    autoResize(input);
+    document.getElementById('sendBtn').disabled = true;
+    isStreaming = true;
+
+    appendMessage('user', message);
+    const bubble = appendStreamingMessage();
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) {
+        bubble.innerHTML = `<span style="color:var(--error)">Error: ${response.statusText}</span>`;
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      bubble.innerHTML = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') break;
+            fullText += data;
+            bubble.innerHTML = renderMarkdown(fullText);
+            document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+          }
+        }
+      }
+    } catch (err) {
+      bubble.innerHTML = `<span style="color:var(--error)">Connection error: ${err.message}</span>`;
+    } finally {
+      isStreaming = false;
+      document.getElementById('sendBtn').disabled = false;
+      document.getElementById('userInput').focus();
+    }
+  }
+
+  function loadWorkspace() {
+    const dir = document.getElementById('workspaceDir').value.trim();
+    if (!dir) return;
+    // Placeholder — workspace file browsing requires a backend endpoint.
+    const tree = document.getElementById('fileTree');
+    tree.innerHTML = `
+      <div class="file-item dir"><span class="icon">📁</span>${dir.split('/').pop() || dir}</div>
+      <div class="file-item" style="padding-left:28px"><span class="icon">📄</span>main.tf</div>
+      <div class="file-item" style="padding-left:28px"><span class="icon">📄</span>variables.tf</div>
+      <div class="file-item" style="padding-left:28px"><span class="icon">📄</span>outputs.tf</div>
+      <div class="file-item" style="padding-left:28px"><span class="icon">📄</span>versions.tf</div>
+    `;
+    insertPrompt(`I'm working in the Terraform workspace at ${dir}. `);
+  }
+
+  // Check health and update provider badge
+  fetch('/api/health')
+    .then(r => r.json())
+    .then(() => {
+      document.getElementById('providerBadge').style.color = 'var(--success)';
+    })
+    .catch(() => {
+      document.getElementById('providerBadge').textContent = '● offline';
+      document.getElementById('providerBadge').style.color = 'var(--error)';
+    });
+</script>
+</body>
+</html>
