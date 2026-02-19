@@ -59,7 +59,7 @@ Examples:
 				question = fmt.Sprintf("[workspace: %s]\n\n%s", dir, question)
 			}
 
-			return tfAgent.Query(ctx, question, os.Stdout)
+			return tfAgent.Query(ctx, question, "", os.Stdout)
 		},
 	}
 

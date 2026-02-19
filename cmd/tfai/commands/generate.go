@@ -59,7 +59,7 @@ Examples:
 				outDir, args[0],
 			)
 
-			return tfAgent.Query(ctx, prompt, os.Stdout)
+			return tfAgent.Query(ctx, prompt, outDir, os.Stdout)
 		},
 	}
 

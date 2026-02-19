@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -129,7 +130,7 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 // Query sends a user message to the agent and streams the response to the
 // provided writer. If a RAG retriever is configured, relevant documentation
 // context is prepended to the message before it reaches the LLM.
-func (a *TerraformAgent) Query(ctx context.Context, userMessage string, w io.Writer) error {
+func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir string, w io.Writer) error {
 	messages, err := a.buildMessages(ctx, userMessage)
 	if err != nil {
 		return fmt.Errorf("agent: failed to build messages: %w", err)
@@ -140,7 +141,7 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage string, w io.Wri
 		return fmt.Errorf("agent: stream failed: %w", err)
 	}
 	defer sr.Close()
-
+	var msgBuf strings.Builder
 	for {
 		msg, err := sr.Recv()
 		if err == io.EOF {
@@ -150,12 +151,33 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage string, w io.Wri
 			return fmt.Errorf("agent: stream receive error: %w", err)
 		}
 		if msg != nil && msg.Content != "" {
-			if _, err := fmt.Fprint(w, msg.Content); err != nil {
+			if _, err := fmt.Fprint(&msgBuf, msg.Content); err != nil {
 				return fmt.Errorf("agent: write error: %w", err)
 			}
 		}
+
 	}
 
+	// If a workspace directory was provided, attempt to parse the buffered output
+	// as a terraform_generate JSON envelope. On success, write files to disk and
+	// stream the human-readable summary to the caller. On failure (regular text
+	// response), fall through and stream the raw buffer as normal.
+	if workspaceDir != "" {
+		result, err := parseAgentOutput(msgBuf.String())
+		if err == nil && len(result.Files) > 0 {
+			if err := applyFiles(result, workspaceDir); err != nil {
+				return fmt.Errorf("agent: Query: failed to apply files: %w", err)
+			}
+			// Stream the summary to the SSE writer, not stdout.
+			fmt.Fprint(w, result.Summary)
+			return nil
+		}
+	}
+
+	// Not a terraform_generate result — stream the raw accumulated content.
+	if _, err := fmt.Fprint(w, msgBuf.String()); err != nil {
+		return fmt.Errorf("agent: write error: %w", err)
+	}
 	return nil
 }
 
