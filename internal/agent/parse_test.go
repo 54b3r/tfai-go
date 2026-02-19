@@ -35,41 +35,52 @@ const (
 	agentOutputFail = `This is not JSON`
 )
 
-func TestParseAgentOutputFiles(t *testing.T) {
-	t.Parallel()
+func TestParseAgentOutput(t *testing.T) {
 
-	output, err := parseAgentOutput(agentOutputFilesOnly)
-	if err != nil {
-		t.Errorf("parseAgentOutput() error = %v", err)
+	tests := []struct {
+		name        string
+		input       string
+		wantFiles   int
+		wantSummary string
+		wantErr     bool
+	}{
+		{
+			name:      "files only",
+			input:     agentOutputFilesOnly,
+			wantFiles: 2,
+			wantErr:   false,
+		}, {
+			name:        "has summary",
+			input:       agentOutputFull,
+			wantFiles:   2,
+			wantSummary: "This is a summary",
+			wantErr:     false,
+		}, {
+			name:    "bad json",
+			input:   agentOutputFail,
+			wantErr: true,
+		},
 	}
 
-	if len(output.Files) != 2 {
-		t.Errorf("parseGeneratedFiles() length = %v, want 2", len(output.Files))
-	}
-}
-
-func TestParseAgentOutputSummary(t *testing.T) {
-	t.Parallel()
-
-	output, err := parseAgentOutput(agentOutputFull)
-	if err != nil {
-		t.Errorf("parseAgentOutput() error = %v", err)
-	}
-
-	if output.Summary != "This is a summary" {
-		t.Errorf("parseAgentOutput() summary = %v, want 'This is a summary'", output.Summary)
-	}
-}
-
-func TestParseGeneratedFilesEmpty(t *testing.T) {
-	t.Parallel()
-
-	output, err := parseAgentOutput(agentOutputFail)
-	if err == nil {
-		t.Errorf("parseAgentOutput() expected error, got nil")
-	}
-
-	if output != nil {
-		t.Errorf("parseAgentOutput() output = %v, want nil", output)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := parseAgentOutput(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(out.Files) != tt.wantFiles {
+				t.Errorf("got %d files, want %d", len(out.Files), tt.wantFiles)
+			}
+			if out.Summary != tt.wantSummary {
+				t.Errorf("got summary %q, want %q", out.Summary, tt.wantSummary)
+			}
+		})
 	}
 }
