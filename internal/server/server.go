@@ -15,42 +15,6 @@ import (
 	"github.com/54b3r/tfai-go/internal/agent"
 )
 
-// Config holds the HTTP server configuration.
-type Config struct {
-	// Host is the address to bind to (default: 127.0.0.1).
-	Host string
-
-	// Port is the TCP port to listen on (default: 8080).
-	Port int
-
-	// ReadTimeout is the maximum duration for reading the request.
-	ReadTimeout time.Duration
-
-	// WriteTimeout is the maximum duration for writing the response.
-	WriteTimeout time.Duration
-
-	// ShutdownTimeout is the maximum duration for a graceful shutdown.
-	ShutdownTimeout time.Duration
-}
-
-// Server is the HTTP server that wraps the TerraformAgent.
-type Server struct {
-	// agent is the TF-AI agent that handles all queries.
-	agent *agent.TerraformAgent
-
-	// cfg holds the resolved server configuration.
-	cfg *Config
-
-	// httpServer is the underlying net/http server.
-	httpServer *http.Server
-}
-
-// chatRequest is the JSON body for POST /api/chat.
-type chatRequest struct {
-	// Message is the user's natural language query.
-	Message string `json:"message"`
-}
-
 // New constructs a Server from the provided agent and config.
 func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	if tfAgent == nil {
@@ -81,6 +45,8 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/chat", s.handleChat)
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
+	mux.HandleFunc("POST /api/workspace/create", s.handleWorkspaceCreate)
 	mux.Handle("/", http.FileServer(http.Dir("ui/static")))
 
 	s.httpServer = &http.Server{
