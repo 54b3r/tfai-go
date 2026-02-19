@@ -13,8 +13,17 @@ RUN go mod download
 
 COPY . .
 
+# Build args allow CI/release workflows to inject version info via --build-arg.
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" \
+    go build -trimpath \
+    -ldflags="-s -w \
+      -X github.com/54b3r/tfai-go/internal/version.Version=${VERSION} \
+      -X github.com/54b3r/tfai-go/internal/version.Commit=${COMMIT} \
+      -X github.com/54b3r/tfai-go/internal/version.BuildDate=${BUILD_DATE}" \
     -o /out/tfai ./cmd/tfai
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
@@ -23,7 +32,8 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
 
 # Install terraform binary for plan/state tools.
-ARG TERRAFORM_VERSION=1.9.8
+# Pin to a specific stable release — update this when upgrading Terraform.
+ARG TERRAFORM_VERSION=1.12.1
 RUN apk add --no-cache curl unzip && \
     curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
     -o /tmp/terraform.zip && \

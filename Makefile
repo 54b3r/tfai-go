@@ -10,6 +10,16 @@ DOCKER_COMPOSE := docker compose
 GO            := go
 GOFLAGS       ?=
 
+# Version info injected into the binary at build time via -ldflags.
+# VERSION defaults to the most recent git tag; falls back to "dev".
+VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT        ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LD_FLAGS      := -s -w \
+  -X github.com/54b3r/tfai-go/internal/version.Version=$(VERSION) \
+  -X github.com/54b3r/tfai-go/internal/version.Commit=$(COMMIT) \
+  -X github.com/54b3r/tfai-go/internal/version.BuildDate=$(BUILD_DATE)
+
 # Source the .env file if it exists (for local native runs).
 ifneq (,$(wildcard .env))
   include .env
@@ -37,8 +47,12 @@ install-tools: ## Install local development tools (golangci-lint, goimports)
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 .PHONY: build
-build: ## Build the tfai binary natively
-	$(GO) build $(GOFLAGS) -trimpath -ldflags="-s -w" -o bin/$(BINARY) ./cmd/tfai
+build: ## Build the tfai binary natively (version info injected via ldflags)
+	$(GO) build $(GOFLAGS) -trimpath -ldflags="$(LD_FLAGS)" -o bin/$(BINARY) ./cmd/tfai
+
+.PHONY: version
+version: build ## Print the version of the locally built binary
+	./bin/$(BINARY) version
 
 .PHONY: build-docker
 build-docker: ## Build the Docker image
