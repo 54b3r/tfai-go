@@ -561,19 +561,77 @@
     }
   }
 
-  function loadWorkspace() {
+  async function loadWorkspace() {
     const dir = document.getElementById('workspaceDir').value.trim();
     if (!dir) return;
-    // Placeholder — workspace file browsing requires a backend endpoint.
     const tree = document.getElementById('fileTree');
-    tree.innerHTML = `
-      <div class="file-item dir"><span class="icon">📁</span>${dir.split('/').pop() || dir}</div>
-      <div class="file-item" style="padding-left:28px"><span class="icon">📄</span>main.tf</div>
-      <div class="file-item" style="padding-left:28px"><span class="icon">📄</span>variables.tf</div>
-      <div class="file-item" style="padding-left:28px"><span class="icon">📄</span>outputs.tf</div>
-      <div class="file-item" style="padding-left:28px"><span class="icon">📄</span>versions.tf</div>
-    `;
-    insertPrompt(`I'm working in the Terraform workspace at ${dir}. `);
+    tree.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--text-muted)">Loading...</div>';
+
+    try {
+      const resp = await fetch('/api/workspace?dir=' + encodeURIComponent(dir));
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        tree.innerHTML = `<div style="padding:16px;font-size:12px;color:var(--error)">${err.error || 'Failed to load workspace'}</div>`;
+        return;
+      }
+      const data = await resp.json();
+
+      const badges = [];
+      if (data.initialized) badges.push('<span style="color:var(--success);font-size:10px">✓ init</span>');
+      if (data.hasState)     badges.push('<span style="color:var(--warning);font-size:10px">⬡ state</span>');
+      if (data.hasLockfile)  badges.push('<span style="color:var(--accent-lt);font-size:10px">🔒 lock</span>');
+
+      const dirName = dir.split('/').pop() || dir;
+      let html = `<div class="file-item dir"><span class="icon">📁</span>${dirName} ${badges.join(' ')}</div>`;
+
+      // Render subdirectories first
+      if (data.dirs && data.dirs.length > 0) {
+        for (const d of data.dirs) {
+          html += `<div class="file-item dir" style="padding-left:28px"><span class="icon">📁</span>${d}</div>`;
+        }
+      }
+
+      // Render .tf / .tfvars files
+      if (data.files && data.files.length > 0) {
+        for (const f of data.files) {
+          html += `<div class="file-item" style="padding-left:28px"><span class="icon">📄</span>${f}</div>`;
+        }
+      }
+
+      // If no dirs and no files, offer to scaffold
+      if ((!data.dirs || data.dirs.length === 0) && (!data.files || data.files.length === 0)) {
+        html += '<div style="padding:8px 28px;font-size:11px;color:var(--text-muted)">No .tf files found</div>';
+        html += `<div style="padding:4px 28px"><button class="sidebar-btn" style="font-size:11px" onclick="createWorkspace('${dir.replace(/'/g, "\\'")}')" >+ Scaffold workspace</button></div>`;
+      }
+
+      tree.innerHTML = html;
+      insertPrompt(`I'm working in the Terraform workspace at ${dir}. `);
+    } catch (err) {
+      tree.innerHTML = `<div style="padding:16px;font-size:12px;color:var(--error)">Connection error: ${err.message}</div>`;
+    }
+  }
+
+  async function createWorkspace(dir) {
+    const description = prompt('Describe what this workspace is for (optional):');
+    const tree = document.getElementById('fileTree');
+    tree.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--text-muted)">Creating workspace...</div>';
+
+    try {
+      const resp = await fetch('/api/workspace/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dir, description: description || '' }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        tree.innerHTML = `<div style="padding:16px;font-size:12px;color:var(--error)">${data.error || 'Failed to create workspace'}</div>`;
+        return;
+      }
+      if (data.prompt) insertPrompt(data.prompt);
+      await loadWorkspace();
+    } catch (err) {
+      tree.innerHTML = `<div style="padding:16px;font-size:12px;color:var(--error)">Connection error: ${err.message}</div>`;
+    }
   }
 
   // Check health and update provider badge

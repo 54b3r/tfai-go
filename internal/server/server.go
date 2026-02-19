@@ -9,47 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"log"
+
 	"github.com/54b3r/tfai-go/internal/agent"
 )
-
-// Config holds the HTTP server configuration.
-type Config struct {
-	// Host is the address to bind to (default: 127.0.0.1).
-	Host string
-
-	// Port is the TCP port to listen on (default: 8080).
-	Port int
-
-	// ReadTimeout is the maximum duration for reading the request.
-	ReadTimeout time.Duration
-
-	// WriteTimeout is the maximum duration for writing the response.
-	WriteTimeout time.Duration
-
-	// ShutdownTimeout is the maximum duration for a graceful shutdown.
-	ShutdownTimeout time.Duration
-}
-
-// Server is the HTTP server that wraps the TerraformAgent.
-type Server struct {
-	// agent is the TF-AI agent that handles all queries.
-	agent *agent.TerraformAgent
-
-	// cfg holds the resolved server configuration.
-	cfg *Config
-
-	// httpServer is the underlying net/http server.
-	httpServer *http.Server
-}
-
-// chatRequest is the JSON body for POST /api/chat.
-type chatRequest struct {
-	// Message is the user's natural language query.
-	Message string `json:"message"`
-}
 
 // New constructs a Server from the provided agent and config.
 func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
@@ -81,6 +49,8 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/chat", s.handleChat)
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
+	mux.HandleFunc("POST /api/workspace/create", s.handleWorkspaceCreate)
 	mux.Handle("/", http.FileServer(http.Dir("ui/static")))
 
 	s.httpServer = &http.Server{
@@ -190,4 +160,128 @@ func (s *sseWriter) Write(p []byte) (n int, err error) {
 	}
 	s.flusher.Flush()
 	return len(p), nil
+}
+
+func decodeCreateWorkspaceRequest(r *http.Request) (createWorkspaceRequest, error) {
+	var req createWorkspaceRequest
+	body := r.Body
+	defer body.Close()
+	if err := json.NewDecoder(body).Decode(&req); err != nil {
+		return createWorkspaceRequest{}, err
+	}
+
+	if req.Dir == "" {
+		return createWorkspaceRequest{}, fmt.Errorf("dir is required")
+	}
+
+	return req, nil
+}
+
+// handleWorkspaceCreate handles POST /api/workspace/create
+func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
+	req, err := decodeCreateWorkspaceRequest(r)
+	if err != nil {
+		log.Printf("server: workspace create decode error: %v", err)
+		http.Error(w, `{"error":"invalid request body: `+err.Error()+`"}`, http.StatusBadRequest)
+		return
+	}
+
+	resp := createWorkspaceResponse{Dir: req.Dir}
+
+	if req.Description != "" {
+		resp.Prompt = "Create a Terraform workspace for: " + req.Description
+	}
+
+	returnFilePath := func(fileName string) string {
+		return filepath.Join(req.Dir, fileName)
+	}
+
+	if err := os.MkdirAll(req.Dir, 0o755); err != nil {
+		log.Printf("server: workspace create mkdir error: %v", err)
+		http.Error(w, `{"error":"failed to create directory: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+
+	scaffoldFiles := []struct {
+		name    string
+		content string
+	}{
+		{"main.tf", "# Add your resources here\n"},
+		{"variables.tf", "# Define input variables here\n"},
+		{"outputs.tf", "# Define outputs here\n"},
+		{"versions.tf", "terraform {\n  required_version = \">= 1.5\"\n}\n"},
+	}
+	for _, f := range scaffoldFiles {
+		if err := os.WriteFile(returnFilePath(f.name), []byte(f.content), 0o644); err != nil {
+			log.Printf("server: workspace create write %s error: %v", f.name, err)
+			http.Error(w, `{"error":"failed to create `+f.name+`: `+err.Error()+`"}`, http.StatusInternalServerError)
+			return
+		}
+		resp.Files = append(resp.Files, f.name)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("server: workspace create encode error: %v", err)
+	}
+}
+
+// handleWorkspace handles GET /api/workspace?dir=<path>.
+func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("dir")
+	if raw == "" {
+		http.Error(w, `{"error":"dir query parameter is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	dir := filepath.Clean(raw)
+	if !filepath.IsAbs(dir) {
+		http.Error(w, `{"error":"dir must be an absolute path"}`, http.StatusBadRequest)
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, `{"error":"directory not found"}`, http.StatusNotFound)
+			return
+		}
+		http.Error(w, `{"error":"failed to read directory"}`, http.StatusInternalServerError)
+		return
+	}
+
+	resp := workspaceResponse{
+		Dir:   dir,
+		Files: []string{},
+		Dirs:  []string{},
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			if name == ".terraform" {
+				resp.Initialized = true
+			}
+			// Skip all hidden directories from the Dirs list
+			if !strings.HasPrefix(name, ".") {
+				resp.Dirs = append(resp.Dirs, name)
+			}
+			continue
+		}
+		switch name {
+		case "terraform.tfstate":
+			resp.HasState = true
+		case ".terraform.lock.hcl":
+			resp.HasLockfile = true
+		}
+		ext := filepath.Ext(name)
+		if ext == ".tf" || ext == ".tfvars" {
+			resp.Files = append(resp.Files, name)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		fmt.Printf("server: workspace encode error: %v\n", err)
+	}
 }
