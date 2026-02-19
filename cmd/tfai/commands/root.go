@@ -28,6 +28,7 @@ See 'tfai --help' for available commands.`,
 		NewDiagnoseCmd(),
 		NewServeCmd(),
 		NewIngestCmd(),
+		NewVersionCmd(),
 	)
 
 	return root

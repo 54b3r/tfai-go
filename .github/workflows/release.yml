@@ -1,0 +1,88 @@
+name: Release
+
+# Triggers when a version tag is pushed (e.g. git tag v1.2.3 && git push --tags).
+# This workflow builds binaries for all supported platforms and creates a
+# GitHub Release with the binaries attached as downloadable assets.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create GitHub Releases and upload assets
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history needed for git describe to resolve the tag
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Resolve version metadata from the triggering tag.
+      - name: Set version variables
+        id: vars
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # Run the full test gate before releasing — never ship a broken binary.
+      - name: go build (verify)
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race)
+        run: go test -race -count=1 ./...
+
+      # Build binaries for all supported platforms.
+      # Each binary is named tfai-<os>-<arch> for clarity in the release assets.
+      - name: Build binaries
+        env:
+          VERSION: ${{ steps.vars.outputs.VERSION }}
+          COMMIT: ${{ steps.vars.outputs.COMMIT }}
+          BUILD_DATE: ${{ steps.vars.outputs.BUILD_DATE }}
+          LD_FLAGS: >-
+            -s -w
+            -X github.com/54b3r/tfai-go/internal/version.Version=${{ steps.vars.outputs.VERSION }}
+            -X github.com/54b3r/tfai-go/internal/version.Commit=${{ steps.vars.outputs.COMMIT }}
+            -X github.com/54b3r/tfai-go/internal/version.BuildDate=${{ steps.vars.outputs.BUILD_DATE }}
+        run: |
+          mkdir -p dist
+
+          GOOS=linux   GOARCH=amd64  go build -trimpath -ldflags="${LD_FLAGS}" -o dist/tfai-linux-amd64   ./cmd/tfai
+          GOOS=linux   GOARCH=arm64  go build -trimpath -ldflags="${LD_FLAGS}" -o dist/tfai-linux-arm64   ./cmd/tfai
+          GOOS=darwin  GOARCH=amd64  go build -trimpath -ldflags="${LD_FLAGS}" -o dist/tfai-darwin-amd64  ./cmd/tfai
+          GOOS=darwin  GOARCH=arm64  go build -trimpath -ldflags="${LD_FLAGS}" -o dist/tfai-darwin-arm64  ./cmd/tfai
+          GOOS=windows GOARCH=amd64  go build -trimpath -ldflags="${LD_FLAGS}" -o dist/tfai-windows-amd64.exe ./cmd/tfai
+
+      # Create checksums so users can verify downloads.
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      # Create the GitHub Release and attach all binaries + checksums.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.vars.outputs.VERSION }}
+          generate_release_notes: true # auto-generates notes from merged PRs/commits
+          files: |
+            dist/tfai-linux-amd64
+            dist/tfai-linux-arm64
+            dist/tfai-darwin-amd64
+            dist/tfai-darwin-arm64
+            dist/tfai-windows-amd64.exe
+            dist/checksums.txt
