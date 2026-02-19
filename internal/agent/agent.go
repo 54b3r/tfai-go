@@ -130,15 +130,16 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 // Query sends a user message to the agent and streams the response to the
 // provided writer. If a RAG retriever is configured, relevant documentation
 // context is prepended to the message before it reaches the LLM.
-func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir string, w io.Writer) error {
+func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir string, w io.Writer) (bool, error) {
+	filesWritten := false
 	messages, err := a.buildMessages(ctx, userMessage)
 	if err != nil {
-		return fmt.Errorf("agent: failed to build messages: %w", err)
+		return filesWritten, fmt.Errorf("agent: failed to build messages: %w", err)
 	}
 
 	sr, err := a.reactAgent.Stream(ctx, messages)
 	if err != nil {
-		return fmt.Errorf("agent: stream failed: %w", err)
+		return filesWritten, fmt.Errorf("agent: stream failed: %w", err)
 	}
 	defer sr.Close()
 	var msgBuf strings.Builder
@@ -148,11 +149,11 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("agent: stream receive error: %w", err)
+			return filesWritten, fmt.Errorf("agent: stream receive error: %w", err)
 		}
 		if msg != nil && msg.Content != "" {
 			if _, err := fmt.Fprint(&msgBuf, msg.Content); err != nil {
-				return fmt.Errorf("agent: write error: %w", err)
+				return filesWritten, fmt.Errorf("agent: write error: %w", err)
 			}
 		}
 
@@ -166,19 +167,21 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 		result, err := parseAgentOutput(msgBuf.String())
 		if err == nil && len(result.Files) > 0 {
 			if err := applyFiles(result, workspaceDir); err != nil {
-				return fmt.Errorf("agent: Query: failed to apply files: %w", err)
+				return filesWritten, fmt.Errorf("agent: Query: failed to apply files: %w", err)
 			}
+			filesWritten = true
 			// Stream the summary to the SSE writer, not stdout.
 			fmt.Fprint(w, result.Summary)
-			return nil
+			return filesWritten, nil
 		}
 	}
 
 	// Not a terraform_generate result — stream the raw accumulated content.
 	if _, err := fmt.Fprint(w, msgBuf.String()); err != nil {
-		return fmt.Errorf("agent: write error: %w", err)
+		return filesWritten, fmt.Errorf("agent: write error: %w", err)
 	}
-	return nil
+
+	return filesWritten, nil
 }
 
 // buildMessages constructs the message slice for the agent, optionally

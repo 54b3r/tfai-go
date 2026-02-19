@@ -112,12 +112,16 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// sseWriter wraps the ResponseWriter to emit SSE-formatted data events.
 	sw := &sseWriter{w: w, flusher: flusher}
 
-	if err := s.agent.Query(r.Context(), req.Message, req.WorkspaceDir, sw); err != nil {
+	filesWritten, err := s.agent.Query(r.Context(), req.Message, req.WorkspaceDir, sw)
+	if err != nil {
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		flusher.Flush()
 		return
 	}
 
+	if filesWritten {
+		fmt.Fprintf(w, "event: files_written\ndata: true\n\n")
+	}
 	// Signal stream completion.
 	fmt.Fprintf(w, "event: done\ndata: [DONE]\n\n")
 	flusher.Flush()

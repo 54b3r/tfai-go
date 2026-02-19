@@ -89,7 +89,8 @@ Examples:
 				return fmt.Errorf("diagnose: provide --plan <file>, pipe plan output via stdin, or specify --dir <workspace>")
 			}
 
-			return tfAgent.Query(ctx, prompt, "", os.Stdout)
+			_, err = tfAgent.Query(ctx, prompt, "", os.Stdout)
+			return err
 		},
 	}
 
