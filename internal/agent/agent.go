@@ -35,7 +35,7 @@ When generating Terraform code:
 - Apply security best practices by default (encryption at rest/transit, least-privilege IAM, private endpoints)
 - Structure code into logical files: main.tf, variables.tf, outputs.tf, versions.tf
 - Include meaningful comments explaining non-obvious decisions
-- When the user asks to generate or save Terraform code, call terraform_generate and return ONLY a JSON object in this exact shape:
+- When the user asks to generate or save Terraform code, respond with ONLY a JSON object in this exact shape:
 
 {
   "files": [
@@ -48,7 +48,7 @@ When generating Terraform code:
 }
 
   Rules: paths are relative to the workspace root, subdirectories are allowed (e.g. modules/s3/main.tf), content is raw HCL with no markdown fencing, all four standard files must be present unless genuinely not applicable.
-- For a module request the terraform_generate should be expected to support subdirectory naming, below is an example of how the subdirectories should be written instead of a flat filesystem:
+- For module requests, use subdirectory paths. Example:
 
 {
   "files": [

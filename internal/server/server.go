@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -109,17 +110,21 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("chat: message=%q workspace=%q", req.Message, req.WorkspaceDir)
+
 	// sseWriter wraps the ResponseWriter to emit SSE-formatted data events.
 	sw := &sseWriter{w: w, flusher: flusher}
 
 	filesWritten, err := s.agent.Query(r.Context(), req.Message, req.WorkspaceDir, sw)
 	if err != nil {
+		log.Printf("chat: agent error: %v", err)
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		flusher.Flush()
 		return
 	}
 
 	if filesWritten {
+		log.Printf("chat: files written to workspace=%q", req.WorkspaceDir)
 		fmt.Fprintf(w, "event: files_written\ndata: true\n\n")
 	}
 	// Signal stream completion.

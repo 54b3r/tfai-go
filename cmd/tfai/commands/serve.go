@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -37,10 +38,12 @@ Examples:
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
+			log.Printf("serve: MODEL_PROVIDER=%q", os.Getenv("MODEL_PROVIDER"))
 			chatModel, err := provider.NewFromEnv(ctx)
 			if err != nil {
 				return fmt.Errorf("serve: failed to initialise model provider: %w", err)
 			}
+			log.Printf("serve: provider initialised successfully")
 
 			runner, err := tools.NewExecRunner()
 			if err != nil {
