@@ -35,6 +35,8 @@ type Server struct {
 type chatRequest struct {
 	// Message is the user's natural language query.
 	Message string `json:"message"`
+	// WorkspaceDir is the directory to work in.
+	WorkspaceDir string `json:"workspaceDir"`
 }
 
 // workspaceResponse is the JSON response for GET /api/workspace.

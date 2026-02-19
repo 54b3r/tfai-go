@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -34,7 +35,30 @@ When generating Terraform code:
 - Apply security best practices by default (encryption at rest/transit, least-privilege IAM, private endpoints)
 - Structure code into logical files: main.tf, variables.tf, outputs.tf, versions.tf
 - Include meaningful comments explaining non-obvious decisions
-- Use the terraform_generate tool to write files to disk when the user wants to save the output
+- When the user asks to generate or save Terraform code, respond with ONLY a JSON object in this exact shape:
+
+{
+  "files": [
+    { "path": "main.tf",      "content": "<raw HCL — no fencing>" },
+    { "path": "variables.tf", "content": "<raw HCL — no fencing>" },
+    { "path": "outputs.tf",   "content": "<raw HCL — no fencing>" },
+    { "path": "versions.tf",  "content": "<raw HCL — no fencing>" }
+  ],
+  "summary": "One sentence describing what was generated."
+}
+
+  Rules: paths are relative to the workspace root, subdirectories are allowed (e.g. modules/s3/main.tf), content is raw HCL with no markdown fencing, all four standard files must be present unless genuinely not applicable.
+- For module requests, use subdirectory paths. Example:
+
+{
+  "files": [
+    { "path": "modules/s3/main.tf",      "content": "<raw HCL>" },
+    { "path": "modules/s3/variables.tf", "content": "<raw HCL>" },
+    { "path": "modules/s3/outputs.tf",   "content": "<raw HCL>" },
+    { "path": "main.tf",                 "content": "<root main.tf calling the module>" }
+  ],
+  "summary": "Created a reusable S3 module with a root caller."
+}
 
 When diagnosing issues:
 - Use terraform_plan to inspect the current plan before advising
@@ -106,34 +130,58 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 // Query sends a user message to the agent and streams the response to the
 // provided writer. If a RAG retriever is configured, relevant documentation
 // context is prepended to the message before it reaches the LLM.
-func (a *TerraformAgent) Query(ctx context.Context, userMessage string, w io.Writer) error {
+func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir string, w io.Writer) (bool, error) {
+	filesWritten := false
 	messages, err := a.buildMessages(ctx, userMessage)
 	if err != nil {
-		return fmt.Errorf("agent: failed to build messages: %w", err)
+		return filesWritten, fmt.Errorf("agent: failed to build messages: %w", err)
 	}
 
 	sr, err := a.reactAgent.Stream(ctx, messages)
 	if err != nil {
-		return fmt.Errorf("agent: stream failed: %w", err)
+		return filesWritten, fmt.Errorf("agent: stream failed: %w", err)
 	}
 	defer sr.Close()
-
+	var msgBuf strings.Builder
 	for {
 		msg, err := sr.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("agent: stream receive error: %w", err)
+			return filesWritten, fmt.Errorf("agent: stream receive error: %w", err)
 		}
 		if msg != nil && msg.Content != "" {
-			if _, err := fmt.Fprint(w, msg.Content); err != nil {
-				return fmt.Errorf("agent: write error: %w", err)
+			if _, err := fmt.Fprint(&msgBuf, msg.Content); err != nil {
+				return filesWritten, fmt.Errorf("agent: write error: %w", err)
 			}
+		}
+
+	}
+
+	// If a workspace directory was provided, attempt to parse the buffered output
+	// as a terraform_generate JSON envelope. On success, write files to disk and
+	// stream the human-readable summary to the caller. On failure (regular text
+	// response), fall through and stream the raw buffer as normal.
+	if workspaceDir != "" {
+		result, err := parseAgentOutput(msgBuf.String())
+		if err == nil && len(result.Files) > 0 {
+			if err := applyFiles(result, workspaceDir); err != nil {
+				return filesWritten, fmt.Errorf("agent: Query: failed to apply files: %w", err)
+			}
+			filesWritten = true
+			// Stream the summary to the SSE writer, not stdout.
+			fmt.Fprint(w, result.Summary)
+			return filesWritten, nil
 		}
 	}
 
-	return nil
+	// Not a terraform_generate result — stream the raw accumulated content.
+	if _, err := fmt.Fprint(w, msgBuf.String()); err != nil {
+		return filesWritten, fmt.Errorf("agent: write error: %w", err)
+	}
+
+	return filesWritten, nil
 }
 
 // buildMessages constructs the message slice for the agent, optionally

@@ -522,7 +522,7 @@
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, workspaceDir: document.getElementById('workspaceDir').value.trim() }),
       });
 
       if (!response.ok) {
@@ -533,6 +533,7 @@
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = '';
+      let currentEvent = '';
       bubble.innerHTML = '';
 
       while (true) {
@@ -543,12 +544,21 @@
         const lines = chunk.split('\n');
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
             const data = line.slice(6);
             if (data === '[DONE]') break;
-            fullText += data;
-            bubble.innerHTML = renderMarkdown(fullText);
-            document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+            if (currentEvent === 'files_written') {
+              loadWorkspace();
+              currentEvent = '';
+            } else {
+              fullText += data;
+              bubble.innerHTML = renderMarkdown(fullText);
+              document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+            }
+          } else if (line === '') {
+            currentEvent = '';
           }
         }
       }
