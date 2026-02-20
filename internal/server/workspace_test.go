@@ -19,6 +19,7 @@ package server
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest" // provides fake request/response — no real network needed
 	"os"
@@ -125,6 +126,7 @@ func newTestServer() *Server {
 	return &Server{
 		agent: nil,
 		cfg:   &Config{},
+		log:   slog.Default(),
 	}
 }
 
@@ -476,4 +478,15 @@ func mustMkdir(t *testing.T, path string) {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatalf("mustMkdir(%q): %v", path, err)
 	}
+}
+
+// mustReadFile reads a file and returns its content as a string,
+// failing the test immediately on error.
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("mustReadFile(%q): %v", path, err)
+	}
+	return string(b)
 }

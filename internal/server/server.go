@@ -54,7 +54,7 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 		cfg.Logger = logging.New()
 	}
 
-	s := &Server{agent: tfAgent, cfg: cfg, log: cfg.Logger}
+	s := &Server{agent: tfAgent, querier: tfAgent, cfg: cfg, log: cfg.Logger}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/chat", s.handleChat)
@@ -163,7 +163,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// sseWriter wraps the ResponseWriter to emit SSE-formatted data events.
 	sw := &sseWriter{w: w, flusher: flusher}
 
-	filesWritten, err := s.agent.Query(ctx, req.Message, req.WorkspaceDir, sw)
+	filesWritten, err := s.querier.Query(ctx, req.Message, req.WorkspaceDir, sw)
 	if err != nil {
 		log.Error("chat agent error", slog.Any("error", err))
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
