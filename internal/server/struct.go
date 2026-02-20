@@ -33,6 +33,9 @@ type Config struct {
 	RateLimit float64
 	// RateBurst is the maximum instantaneous burst per IP. Defaults to 20 if zero.
 	RateBurst int
+	// APIKey is the Bearer token required on all protected /api/* routes.
+	// If empty, authentication is disabled (development mode).
+	APIKey string
 }
 
 // querier is the interface handleChat calls to stream a response.
