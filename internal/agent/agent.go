@@ -21,6 +21,7 @@ import (
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/54b3r/tfai-go/internal/budget"
 	"github.com/54b3r/tfai-go/internal/logging"
 	"github.com/54b3r/tfai-go/internal/rag"
 	"github.com/54b3r/tfai-go/internal/store"
@@ -95,6 +96,11 @@ type Config struct {
 	// HistoryDepth is the number of prior turns (user+assistant pairs) to
 	// inject per query. Defaults to 10 if zero.
 	HistoryDepth int
+	// MaxContextTokens is the estimated token budget for the full input context
+	// (system prompt + history + RAG + workspace + user message). History is
+	// trimmed oldest-first to fit. Defaults to budget.DefaultMaxContextTokens
+	// if zero.
+	MaxContextTokens int
 }
 
 // TerraformAgent wraps the Eino ReAct agent with Terraform-specific behaviour,
@@ -114,6 +120,9 @@ type TerraformAgent struct {
 
 	// historyDepth is the number of recent messages to inject per query.
 	historyDepth int
+
+	// maxContextTokens is the estimated token budget for the full input context.
+	maxContextTokens int
 }
 
 // New constructs a TerraformAgent from the provided Config.
@@ -144,12 +153,18 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 		depth = 10
 	}
 
+	maxCtx := cfg.MaxContextTokens
+	if maxCtx <= 0 {
+		maxCtx = budget.DefaultMaxContextTokens
+	}
+
 	return &TerraformAgent{
-		reactAgent:   reactAgent,
-		retriever:    cfg.Retriever,
-		ragTopK:      topK,
-		history:      cfg.History,
-		historyDepth: depth,
+		reactAgent:       reactAgent,
+		retriever:        cfg.Retriever,
+		ragTopK:          topK,
+		history:          cfg.History,
+		historyDepth:     depth,
+		maxContextTokens: maxCtx,
 	}, nil
 }
 
@@ -230,6 +245,8 @@ func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage, workspa
 	}
 
 	// Inject recent conversation history so the LLM has multi-turn context.
+	// History is trimmed oldest-first to stay within the token budget.
+	var historyMsgs []*schema.Message
 	if a.history != nil {
 		prior, err := a.history.Recent(ctx, workspaceDir, a.historyDepth*2)
 		if err != nil {
@@ -238,9 +255,9 @@ func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage, workspa
 			for _, m := range prior {
 				switch m.Role {
 				case store.RoleUser:
-					messages = append(messages, schema.UserMessage(m.Content))
+					historyMsgs = append(historyMsgs, schema.UserMessage(m.Content))
 				case store.RoleAssistant:
-					messages = append(messages, schema.AssistantMessage(m.Content, nil))
+					historyMsgs = append(historyMsgs, schema.AssistantMessage(m.Content, nil))
 				}
 			}
 		}
@@ -266,8 +283,31 @@ func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage, workspa
 		}
 	}
 
-	messages = append(messages, schema.UserMessage(userMessage))
-	return messages, nil
+	// Add the current user message to the fixed set for budget calculation.
+	fixed := append(messages, schema.UserMessage(userMessage)) //nolint:gocritic // intentional copy
+
+	// Trim history oldest-first so the total estimated token count fits within
+	// the configured context budget.
+	before := len(historyMsgs)
+	historyMsgs = budget.TrimHistory(fixed, historyMsgs, a.maxContextTokens)
+	if dropped := before - len(historyMsgs); dropped > 0 {
+		logging.FromContext(ctx).Warn("budget: dropped history messages to fit context window",
+			slog.Int("dropped", dropped),
+			slog.Int("retained", len(historyMsgs)),
+			slog.Int("max_tokens", a.maxContextTokens),
+		)
+	}
+
+	// Insert trimmed history between the system prompt and the rest of the fixed
+	// messages (RAG context, workspace context, user message).
+	// messages currently holds: [system, ...rag, ...workspace]
+	// We want: [system, ...history, ...rag, ...workspace, user]
+	result := make([]*schema.Message, 0, 1+len(historyMsgs)+len(messages)-1+1)
+	result = append(result, messages[0])     // system prompt
+	result = append(result, historyMsgs...)  // trimmed history
+	result = append(result, messages[1:]...) // RAG + workspace
+	result = append(result, schema.UserMessage(userMessage))
+	return result, nil
 }
 
 // buildWorkspaceContext reads all .tf files in the workspace directory and
