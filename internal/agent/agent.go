@@ -23,6 +23,7 @@ import (
 
 	"github.com/54b3r/tfai-go/internal/logging"
 	"github.com/54b3r/tfai-go/internal/rag"
+	"github.com/54b3r/tfai-go/internal/store"
 )
 
 // systemPrompt is the base system prompt injected into every conversation.
@@ -88,6 +89,12 @@ type Config struct {
 	// RAGTopK controls how many RAG documents are injected per query.
 	// Defaults to 5 if zero.
 	RAGTopK int
+	// History is the optional conversation store used to persist and replay
+	// prior turns. If nil, each query is stateless.
+	History store.ConversationStore
+	// HistoryDepth is the number of prior turns (user+assistant pairs) to
+	// inject per query. Defaults to 10 if zero.
+	HistoryDepth int
 }
 
 // TerraformAgent wraps the Eino ReAct agent with Terraform-specific behaviour,
@@ -101,6 +108,12 @@ type TerraformAgent struct {
 
 	// ragTopK is the number of RAG documents to inject per query.
 	ragTopK int
+
+	// history is the optional conversation store for multi-turn context.
+	history store.ConversationStore
+
+	// historyDepth is the number of recent messages to inject per query.
+	historyDepth int
 }
 
 // New constructs a TerraformAgent from the provided Config.
@@ -126,16 +139,25 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 		return nil, fmt.Errorf("agent: failed to create ReAct agent: %w", err)
 	}
 
+	depth := cfg.HistoryDepth
+	if depth <= 0 {
+		depth = 10
+	}
+
 	return &TerraformAgent{
-		reactAgent: reactAgent,
-		retriever:  cfg.Retriever,
-		ragTopK:    topK,
+		reactAgent:   reactAgent,
+		retriever:    cfg.Retriever,
+		ragTopK:      topK,
+		history:      cfg.History,
+		historyDepth: depth,
 	}, nil
 }
 
 // Query sends a user message to the agent and streams the response to the
 // provided writer. If a RAG retriever is configured, relevant documentation
 // context is prepended to the message before it reaches the LLM.
+// If a conversation store is configured, prior turns are injected and the
+// new user message and assistant response are persisted after completion.
 func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir string, w io.Writer) (bool, error) {
 	filesWritten := false
 	messages, err := a.buildMessages(ctx, userMessage, workspaceDir)
@@ -187,6 +209,16 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 		return filesWritten, fmt.Errorf("agent: write error: %w", err)
 	}
 
+	// Persist the turn to the conversation store (non-fatal on error).
+	if a.history != nil {
+		if err := a.history.Append(ctx, workspaceDir, store.RoleUser, userMessage); err != nil {
+			logging.FromContext(ctx).Warn("history: failed to persist user message", slog.Any("error", err))
+		}
+		if err := a.history.Append(ctx, workspaceDir, store.RoleAssistant, msgBuf.String()); err != nil {
+			logging.FromContext(ctx).Warn("history: failed to persist assistant message", slog.Any("error", err))
+		}
+	}
+
 	return filesWritten, nil
 }
 
@@ -195,6 +227,23 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage, workspaceDir string) ([]*schema.Message, error) {
 	messages := []*schema.Message{
 		schema.SystemMessage(systemPrompt),
+	}
+
+	// Inject recent conversation history so the LLM has multi-turn context.
+	if a.history != nil {
+		prior, err := a.history.Recent(ctx, workspaceDir, a.historyDepth*2)
+		if err != nil {
+			logging.FromContext(ctx).Warn("history: failed to load prior messages", slog.Any("error", err))
+		} else {
+			for _, m := range prior {
+				switch m.Role {
+				case store.RoleUser:
+					messages = append(messages, schema.UserMessage(m.Content))
+				case store.RoleAssistant:
+					messages = append(messages, schema.AssistantMessage(m.Content, nil))
+				}
+			}
+		}
 	}
 
 	if a.retriever != nil {
