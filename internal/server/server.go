@@ -8,7 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/54b3r/tfai-go/internal/agent"
+	"github.com/54b3r/tfai-go/internal/logging"
 	"github.com/54b3r/tfai-go/internal/tracing"
 )
 
@@ -24,6 +25,7 @@ import (
 var requestCounter atomic.Uint64
 
 // New constructs a Server from the provided agent and config.
+// If cfg.Logger is nil, [logging.New] is used.
 func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	if tfAgent == nil {
 		return nil, fmt.Errorf("server: agent must not be nil")
@@ -48,7 +50,11 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 		cfg.ShutdownTimeout = 10 * time.Second
 	}
 
-	s := &Server{agent: tfAgent, cfg: cfg}
+	if cfg.Logger == nil {
+		cfg.Logger = logging.New()
+	}
+
+	s := &Server{agent: tfAgent, cfg: cfg, log: cfg.Logger}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/chat", s.handleChat)
@@ -68,7 +74,7 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
-		Handler:      mux,
+		Handler:      requestLogger(s.log, mux),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 	}
@@ -82,7 +88,7 @@ func (s *Server) Start(ctx context.Context) error {
 	errCh := make(chan error, 1)
 
 	go func() {
-		fmt.Printf("tfai server listening on http://%s\n", s.httpServer.Addr)
+		s.log.Info("server listening", slog.String("addr", "http://"+s.httpServer.Addr))
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
@@ -148,21 +154,25 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	sessionID := fmt.Sprintf("tfai-%d-%d", time.Now().UnixMilli(), requestCounter.Add(1))
 	ctx := tracing.SetRequestTrace(r.Context(), sessionID)
 
-	log.Printf("chat: message=%q workspace=%q session=%q", req.Message, req.WorkspaceDir, sessionID)
+	log := logging.FromContext(r.Context()).With(
+		slog.String("session_id", sessionID),
+		slog.String("workspace", req.WorkspaceDir),
+	)
+	log.Info("chat start", slog.String("message", req.Message))
 
 	// sseWriter wraps the ResponseWriter to emit SSE-formatted data events.
 	sw := &sseWriter{w: w, flusher: flusher}
 
 	filesWritten, err := s.agent.Query(ctx, req.Message, req.WorkspaceDir, sw)
 	if err != nil {
-		log.Printf("chat: agent error: %v", err)
+		log.Error("chat agent error", slog.Any("error", err))
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		flusher.Flush()
 		return
 	}
 
 	if filesWritten {
-		log.Printf("chat: files written to workspace=%q", req.WorkspaceDir)
+		log.Info("chat files written")
 		fmt.Fprintf(w, "event: files_written\ndata: true\n\n")
 	}
 	// Signal stream completion.
@@ -174,7 +184,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
-		log.Printf("health: encode error: %v", err)
+		logging.FromContext(r.Context()).Error("health encode error", slog.Any("error", err))
 	}
 }
 

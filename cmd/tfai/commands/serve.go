@@ -2,7 +2,7 @@ package commands
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/54b3r/tfai-go/internal/agent"
+	"github.com/54b3r/tfai-go/internal/logging"
 	"github.com/54b3r/tfai-go/internal/provider"
 	"github.com/54b3r/tfai-go/internal/server"
 	"github.com/54b3r/tfai-go/internal/tools"
@@ -40,23 +41,26 @@ Examples:
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			log.Printf("serve: MODEL_PROVIDER=%q", os.Getenv("MODEL_PROVIDER"))
+			log := logging.New()
+			ctx = logging.WithLogger(ctx, log)
+
+			log.Info("serve starting", slog.String("provider", os.Getenv("MODEL_PROVIDER")))
 
 			// Setup Langfuse tracing — opt-in, no-op if keys are absent.
 			handler, flush, ok := tracing.Setup()
 			if ok {
 				callbacks.AppendGlobalHandlers(handler)
 				defer flush()
-				log.Printf("serve: langfuse tracing enabled")
+				log.Info("langfuse tracing enabled")
 			} else {
-				log.Printf("serve: langfuse tracing disabled (LANGFUSE_PUBLIC_KEY not set)")
+				log.Info("langfuse tracing disabled", slog.String("reason", "LANGFUSE_PUBLIC_KEY not set"))
 			}
 
 			chatModel, err := provider.NewFromEnv(ctx)
 			if err != nil {
 				return fmt.Errorf("serve: failed to initialise model provider: %w", err)
 			}
-			log.Printf("serve: provider initialised successfully")
+			log.Info("provider initialised", slog.String("provider", os.Getenv("MODEL_PROVIDER")))
 
 			runner, err := tools.NewExecRunner()
 			if err != nil {
@@ -75,8 +79,9 @@ Examples:
 			}
 
 			srv, err := server.New(tfAgent, &server.Config{
-				Host: host,
-				Port: port,
+				Host:   host,
+				Port:   port,
+				Logger: log,
 			})
 			if err != nil {
 				return fmt.Errorf("serve: failed to create server: %w", err)
