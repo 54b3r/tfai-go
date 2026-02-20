@@ -7,12 +7,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/spf13/cobra"
 
 	"github.com/54b3r/tfai-go/internal/agent"
 	"github.com/54b3r/tfai-go/internal/provider"
 	"github.com/54b3r/tfai-go/internal/server"
 	"github.com/54b3r/tfai-go/internal/tools"
+	"github.com/54b3r/tfai-go/internal/tracing"
 )
 
 // NewServeCmd constructs the `tfai serve` command, which starts the HTTP
@@ -39,6 +41,17 @@ Examples:
 			defer stop()
 
 			log.Printf("serve: MODEL_PROVIDER=%q", os.Getenv("MODEL_PROVIDER"))
+
+			// Setup Langfuse tracing — opt-in, no-op if keys are absent.
+			handler, flush, ok := tracing.Setup()
+			if ok {
+				callbacks.AppendGlobalHandlers(handler)
+				defer flush()
+				log.Printf("serve: langfuse tracing enabled")
+			} else {
+				log.Printf("serve: langfuse tracing disabled (LANGFUSE_PUBLIC_KEY not set)")
+			}
+
 			chatModel, err := provider.NewFromEnv(ctx)
 			if err != nil {
 				return fmt.Errorf("serve: failed to initialise model provider: %w", err)
