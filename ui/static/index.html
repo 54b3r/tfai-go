@@ -724,25 +724,35 @@
       const dirName = dir.split('/').pop() || dir;
       let html = `<div class="file-item dir"><span class="icon">📁</span>${dirName} ${badges.join(' ')}</div>`;
 
-      // Render subdirectories first
-      if (data.dirs && data.dirs.length > 0) {
-        for (const d of data.dirs) {
-          html += `<div class="file-item dir" style="padding-left:28px"><span class="icon">📁</span>${d}</div>`;
-        }
-      }
-
-      // Render .tf / .tfvars files — clickable to open in editor
+      // Group files by their parent directory (relative to workspace root)
       if (data.files && data.files.length > 0) {
-        for (const f of data.files) {
-          const fullPath = dir.replace(/\/+$/, '') + '/' + f;
-          html += `<div class="file-item" style="padding-left:28px" onclick="openFile('${fullPath.replace(/'/g, "\\'")}', this)"><span class="icon">📄</span>${f}</div>`;
+        const groups = {};
+        for (const rel of data.files) {
+          const parts = rel.split('/');
+          const dirKey = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+          if (!groups[dirKey]) groups[dirKey] = [];
+          groups[dirKey].push({ rel, name: parts[parts.length - 1] });
         }
-      }
-
-      // If no dirs and no files, offer to scaffold
-      if ((!data.dirs || data.dirs.length === 0) && (!data.files || data.files.length === 0)) {
+        // Root files first, then subdirs sorted
+        const keys = Object.keys(groups).sort((a, b) => {
+          if (a === '') return -1;
+          if (b === '') return 1;
+          return a.localeCompare(b);
+        });
+        for (const key of keys) {
+          if (key !== '') {
+            html += `<div class="file-item dir" style="padding-left:20px"><span class="icon">📁</span>${key}</div>`;
+          }
+          const indent = key === '' ? 28 : 36;
+          for (const { rel, name } of groups[key]) {
+            const fullPath = dir.replace(/\/+$/, '') + '/' + rel;
+            html += `<div class="file-item" style="padding-left:${indent}px" onclick="openFile('${fullPath.replace(/'/g, "\\'")}', this)"><span class="icon">📄</span>${name}</div>`;
+          }
+        }
+      } else {
+        // No files — offer to scaffold
         html += '<div style="padding:8px 28px;font-size:11px;color:var(--text-muted)">No .tf files found</div>';
-        html += `<div style="padding:4px 28px"><button class="sidebar-btn" style="font-size:11px" onclick="createWorkspace('${dir.replace(/'/g, "\\'")}')" >+ Scaffold workspace</button></div>`;
+        html += `<div style="padding:4px 28px"><button class="sidebar-btn" style="font-size:11px" onclick="createWorkspace('${dir.replace(/'/g, "\\'")}')">+ Scaffold workspace</button></div>`;
       }
 
       tree.innerHTML = html;

@@ -5,6 +5,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -31,7 +32,8 @@ func writeJSONError(w http.ResponseWriter, msg string, status int) {
 }
 
 // handleWorkspace handles GET /api/workspace?dir=<path>.
-// It returns the directory contents, TF file list, subdirs, and workspace status flags.
+// It recursively walks the directory and returns all .tf/.tfvars files as
+// relative paths (e.g. "modules/vpc/main.tf"), plus workspace status flags.
 func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	dir, err := resolveAbsDir(r.URL.Query().Get("dir"))
 	if err != nil {
@@ -39,13 +41,8 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			writeJSONError(w, "directory not found", http.StatusNotFound)
-			return
-		}
-		writeJSONError(w, "failed to read directory", http.StatusInternalServerError)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		writeJSONError(w, "directory not found", http.StatusNotFound)
 		return
 	}
 
@@ -55,17 +52,20 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		Dirs:  []string{},
 	}
 
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() {
-			if name == ".terraform" {
-				resp.Initialized = true
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		name := d.Name()
+		if d.IsDir() {
+			// Skip hidden dirs entirely (don't descend into .terraform)
+			if strings.HasPrefix(name, ".") {
+				if name == ".terraform" {
+					resp.Initialized = true
+				}
+				return filepath.SkipDir
 			}
-			// Exclude hidden directories from the visible Dirs list.
-			if !strings.HasPrefix(name, ".") {
-				resp.Dirs = append(resp.Dirs, name)
-			}
-			continue
+			return nil
 		}
 		switch name {
 		case "terraform.tfstate":
@@ -75,8 +75,15 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		}
 		ext := filepath.Ext(name)
 		if ext == ".tf" || ext == ".tfvars" {
-			resp.Files = append(resp.Files, name)
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr == nil {
+				resp.Files = append(resp.Files, rel)
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("server: workspace walk error: %v", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

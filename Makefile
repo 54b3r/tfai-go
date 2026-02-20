@@ -111,6 +111,23 @@ test-cover: ## Run tests with coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+# ── Gate ──────────────────────────────────────────────────────────────────────
+# Full pre-commit verification sequence. Must pass before any commit or PR.
+# Steps: build → vet → test → binary smoke (version + help)
+.PHONY: gate
+gate: ## Run full pre-commit gate (build + vet + test + binary smoke)
+	@echo "── gate: build ──────────────────────────────────────────"
+	$(GO) build $(GOFLAGS) -trimpath -ldflags="$(LD_FLAGS)" -o bin/$(BINARY) ./cmd/tfai
+	@echo "── gate: vet ────────────────────────────────────────────"
+	$(GO) vet ./...
+	@echo "── gate: test ───────────────────────────────────────────"
+	$(GO) test -race -count=1 ./...
+	@echo "── gate: binary smoke ───────────────────────────────────"
+	./bin/$(BINARY) version
+	./bin/$(BINARY) --help
+	./bin/$(BINARY) serve --help
+	@echo "── gate: PASS ───────────────────────────────────────────"
+
 # ── Ingestion ─────────────────────────────────────────────────────────────────
 .PHONY: ingest-aws
 ingest-aws: build ## Ingest core AWS Terraform provider docs into Qdrant
