@@ -147,12 +147,59 @@ make clean          # Remove build artifacts
 
 ---
 
+## API Reference
+
+### Authentication
+
+Set `TFAI_API_KEY` to enable Bearer token authentication. When set, all
+`/api/*` routes except `/api/health` and `/api/ready` require:
+
+```
+Authorization: Bearer <TFAI_API_KEY>
+```
+
+If `TFAI_API_KEY` is unset the server starts in **unauthenticated mode** with a
+startup warning — suitable for local development only.
+
+### Endpoints
+
+| Method | Path | Auth | Rate limited | Description |
+|---|---|---|---|---|
+| `GET` | `/api/health` | No | No | Liveness — always 200 while process is running |
+| `GET` | `/api/ready` | No | No | Readiness — probes LLM + Qdrant, returns 200 or 503 |
+| `POST` | `/api/chat` | Yes | Yes | Stream agent response (SSE) |
+| `GET` | `/api/workspace` | Yes | Yes | List workspace files and metadata |
+| `POST` | `/api/workspace/create` | Yes | Yes | Scaffold a new workspace |
+| `GET` | `/api/file` | Yes | Yes | Read a file |
+| `PUT` | `/api/file` | Yes | Yes | Write a file |
+
+### Rate limiting
+
+Per-IP token bucket: **10 requests/second sustained, burst 20** (defaults).
+Exceeded requests receive `429 Too Many Requests` with a `Retry-After: 1` header.
+
+### Readiness response
+
+```json
+{
+  "ready": false,
+  "checks": [
+    {"name": "ollama", "ok": false, "error": "model not found"},
+    {"name": "qdrant",  "ok": true}
+  ]
+}
+```
+
+---
+
 ## Security Model
 
 tfai binds to `127.0.0.1` by default and is designed for **single-user local use**.
 
 | Threat | Mitigation |
 |---|---|
+| Unauthenticated API access | Bearer token auth on all `/api/*` routes (opt-in via `TFAI_API_KEY`) |
+| Request flood / DoS | Per-IP token-bucket rate limiting (10 rps, burst 20) on all API routes |
 | Path traversal via LLM output | All file writes confined to declared workspace root |
 | Path traversal via API params | `confineToDir` enforced on all file API calls |
 | Arbitrary directory creation | `POST /api/workspace/create` requires pre-existing directory |
@@ -160,9 +207,7 @@ tfai binds to `127.0.0.1` by default and is designed for **single-user local use
 | Secret leakage | Credentials only from env vars, never logged or returned |
 | Prompt injection via workspace | Only `.tf` files injected into LLM context |
 
-See `.windsurf/rules/security.md` for the full SRE security policy.
-
-> **Note:** If you expose the server beyond localhost, add authentication, TLS, and rate limiting before doing so.
+See `.windsurf/rules/` for the full coding, SRE, and security policy.
 
 ---
 

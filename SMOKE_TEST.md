@@ -25,8 +25,10 @@ mkdir -p /tmp/tfai-smoke
 ### 2. Start the server
 
 ```bash
-go run ./cmd/tfai serve
-# Expected: "tfai server listening on http://127.0.0.1:8080"
+TFAI_API_KEY=smoke-test-key go run ./cmd/tfai serve
+# Expected log lines:
+#   level=INFO msg="auth enabled" api_key_set=true
+#   level=INFO msg="server listening" addr=http://127.0.0.1:8080
 ```
 
 ### 3. Open the UI
@@ -78,6 +80,106 @@ rm -rf /tmp/tfai-smoke
 - **File tree does not refresh** — `event: files_written` SSE frame not received; check browser DevTools → Network → `/api/chat` response stream
 - **No files on disk** — `applyFiles` returned an error; check server stderr for `agent: Query: failed to apply files`
 - **Summary is empty** — LLM returned JSON with an empty `summary` field; the system prompt may need reinforcement
+
+---
+
+## Part 4 — Authentication & Rate Limiting
+
+Run after any change to `internal/server/auth.go`, `internal/server/ratelimit.go`, or the middleware wiring in `server.go`.
+
+### Prerequisites
+
+- Server built: `make gate`
+- Server running with an API key set:
+  ```bash
+  TFAI_API_KEY=smoke-test-key MODEL_PROVIDER=ollama OLLAMA_MODEL=llama3 \
+    ./bin/tfai serve --port 8099
+  ```
+
+### Steps
+
+#### 1. Unprotected routes — no auth required
+
+```bash
+curl -s http://127.0.0.1:8099/api/health
+# Expected: 200 {"status":"ok"}
+
+curl -s http://127.0.0.1:8099/api/ready
+# Expected: 200 or 503 depending on LLM/Qdrant state — never 401
+```
+
+#### 2. Protected route — missing token
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8099/api/workspace?dir=/tmp
+# Expected: 401
+```
+
+Server log should show:
+```
+level=WARN msg="auth: missing Authorization header" path=/api/workspace
+```
+
+#### 3. Protected route — wrong token
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" \
+  -H "Authorization: Bearer wrong-key" \
+  http://127.0.0.1:8099/api/workspace?dir=/tmp
+# Expected: 401
+```
+
+Server log should show:
+```
+level=WARN msg="auth: invalid token" path=/api/workspace token_present=true
+```
+
+Verify the actual key value does **not** appear in the log.
+
+#### 4. Protected route — correct token
+
+```bash
+curl -s -H "Authorization: Bearer smoke-test-key" \
+  http://127.0.0.1:8099/api/workspace?dir=/tmp
+# Expected: 200 with JSON workspace response
+```
+
+#### 5. Auth disabled mode (dev)
+
+Restart without `TFAI_API_KEY`:
+```bash
+MODEL_PROVIDER=ollama OLLAMA_MODEL=llama3 ./bin/tfai serve --port 8099
+```
+
+Expected startup log:
+```
+level=WARN msg="auth disabled: TFAI_API_KEY not set — all API routes are unauthenticated"
+```
+
+All routes should respond without an Authorization header.
+
+#### 6. Rate limiting
+
+```bash
+for i in $(seq 1 30); do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -H "Authorization: Bearer smoke-test-key" \
+    http://127.0.0.1:8099/api/workspace?dir=/tmp
+done
+```
+
+Expected: first ~20 responses are `200`, subsequent responses include at least one `429`.
+Server log should show:
+```
+level=WARN msg="rate limit exceeded" ip=127.0.0.1 path=/api/workspace
+```
+
+### Failure modes
+
+- **401 on `/api/health` or `/api/ready`** — auth middleware incorrectly applied to exempt routes; check `server.go` mux wiring
+- **200 on protected route without token** — `authMiddleware` not wired; check `protected()` closure in `server.go`
+- **API key value appears in logs** — security regression in `auth.go`; only `token_present:true/false` should be logged
+- **No 429 after burst** — rate limiter not wired; check `rl.middleware` wrapping in `server.go`
 
 ---
 
@@ -188,7 +290,8 @@ ls /tmp/tfai-does-not-exist  # must not exist
 #### 6. Path traversal rejection (security check)
 
 ```bash
-curl -s "http://127.0.0.1:8080/api/file?path=../../etc/passwd&workspaceDir=/tmp/tfai-existing"
+curl -s -H "Authorization: Bearer smoke-test-key" \
+  "http://127.0.0.1:8080/api/file?path=../../etc/passwd&workspaceDir=/tmp/tfai-existing"
 # Expected: 403 Forbidden
 ```
 
