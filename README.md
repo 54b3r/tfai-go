@@ -66,17 +66,20 @@ tfai ingest --provider aws \
 
 ## Model Provider Configuration
 
-Set `MODEL_PROVIDER` to select your inference backend. All other config is via env vars.
+Set `MODEL_PROVIDER` to select your inference backend. Each provider uses its own
+native credential env vars — no homogenised `MODEL_API_KEY` abstraction.
 
 | Provider | `MODEL_PROVIDER` | Required env vars |
 |---|---|---|
-| **Ollama** (local) | `ollama` | `MODEL_BASE_URL` (default: `http://localhost:11434`), `MODEL_NAME` |
-| **OpenAI** | `openai` | `MODEL_API_KEY`, `MODEL_NAME` |
-| **Azure OpenAI** | `azure` | `MODEL_API_KEY`, `MODEL_BASE_URL` (endpoint), `AZURE_DEPLOYMENT` |
-| **AWS Bedrock** | `bedrock` | AWS credential chain, `MODEL_NAME`, `AWS_REGION` |
-| **Google Gemini** | `gemini` | `MODEL_API_KEY`, `MODEL_NAME` |
+| **Ollama** (local) | `ollama` | `OLLAMA_HOST` (default: `http://localhost:11434`), `OLLAMA_MODEL` |
+| **OpenAI** | `openai` | `OPENAI_API_KEY`, `OPENAI_MODEL` |
+| **Azure OpenAI** | `azure` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` |
+| **AWS Bedrock** | `bedrock` | AWS credential chain (`AWS_PROFILE` / env / instance role), `BEDROCK_MODEL_ID`, `AWS_REGION` |
+| **Google Gemini** | `gemini` | `GOOGLE_API_KEY`, `GEMINI_MODEL` |
 
-See `.env.example` for the full reference.
+Optional shared tuning: `MODEL_MAX_TOKENS` (default: 4096), `MODEL_TEMPERATURE` (default: 0.2).
+
+See `.env.example` for the full reference with per-provider examples.
 
 ---
 

@@ -60,17 +60,6 @@ issues:
         - wrapcheck
         - gosec
 
-    # SA1019: model.ChatModel is deprecated in eino — tracked upstream.
-    # We cannot migrate until eino-ext provider constructors return ToolCallingChatModel.
-    - path: "internal/provider/"
-      linters:
-        - staticcheck
-      text: "SA1019"
-    - path: "internal/agent/"
-      linters:
-        - staticcheck
-      text: "SA1019"
-
     # Provider backend constructors are thin pass-throughs to eino-ext — wrapping
     # the constructor error adds no diagnostic value.
     - path: "internal/provider/backends\\.go"
