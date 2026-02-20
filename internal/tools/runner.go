@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os/exec"
+
+	"github.com/54b3r/tfai-go/internal/logging"
 )
 
 // ExecRunner implements Runner by executing the real terraform binary found
@@ -30,6 +33,12 @@ func (r *ExecRunner) Run(ctx context.Context, ws *WorkspaceContext, subcommand s
 	for _, vf := range ws.VarFiles {
 		cmdArgs = append(cmdArgs, fmt.Sprintf("-var-file=%s", vf))
 	}
+
+	logging.FromContext(ctx).Info("tool: terraform invocation",
+		slog.String("subcommand", subcommand),
+		slog.Any("args", cmdArgs),
+		slog.String("workspace", ws.Dir),
+	)
 
 	cmd := exec.CommandContext(ctx, "terraform", cmdArgs...)
 	cmd.Dir = ws.Dir
