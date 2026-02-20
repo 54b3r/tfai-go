@@ -75,7 +75,7 @@ Always be concise, accurate, and production-focused.`
 // Config holds the dependencies required to construct a TerraformAgent.
 type Config struct {
 	// ChatModel is the LLM backend constructed by the provider factory.
-	ChatModel model.ChatModel
+	ChatModel model.ToolCallingChatModel
 
 	// Tools is the list of Terraform tools available to the agent.
 	Tools []tool.BaseTool
@@ -114,7 +114,7 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 	}
 
 	agentCfg := &react.AgentConfig{
-		Model: cfg.ChatModel,
+		ToolCallingModel: cfg.ChatModel,
 		ToolsConfig: compose.ToolsNodeConfig{
 			Tools: cfg.Tools,
 		},
