@@ -1,10 +1,13 @@
 package tracing
 
 import (
+	"context"
 	"os"
 
 	"github.com/cloudwego/eino-ext/callbacks/langfuse"
 	"github.com/cloudwego/eino/callbacks"
+
+	"github.com/54b3r/tfai-go/internal/version"
 )
 
 // Setup initialises the Langfuse callback handler if LANGFUSE_PUBLIC_KEY and
@@ -27,7 +30,23 @@ func Setup() (callbacks.Handler, func(), bool) {
 		Host:      host,
 		PublicKey: publicKey,
 		SecretKey: secretKey,
+		Name:      "tfai",
+		Release:   version.Version,
+		Tags:      []string{"tfai", "terraform", "llm"},
 	})
 
 	return handler, flusher, true
+}
+
+// SetRequestTrace stamps the context with per-request trace metadata so each
+// chat request appears as a distinct, named trace in Langfuse. Call this once
+// per request before invoking the agent. sessionID should be a unique ID for
+// the request (e.g. a UUID or the HTTP request ID).
+func SetRequestTrace(ctx context.Context, sessionID string) context.Context {
+	return langfuse.SetTrace(ctx,
+		langfuse.WithName("tfai-chat"),
+		langfuse.WithSessionID(sessionID),
+		langfuse.WithRelease(version.Version),
+		langfuse.WithTags("tfai", "chat"),
+	)
 }

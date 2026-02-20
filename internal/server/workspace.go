@@ -129,6 +129,63 @@ func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleFileRead handles GET /api/file?path=<absolute-path>.
+// Returns the raw content of the requested file. The path must be absolute.
+func (s *Server) handleFileRead(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("path")
+	if raw == "" {
+		writeJSONError(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	path := filepath.Clean(raw)
+	if !filepath.IsAbs(path) {
+		writeJSONError(w, "path must be absolute", http.StatusBadRequest)
+		return
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSONError(w, "file not found", http.StatusNotFound)
+			return
+		}
+		writeJSONError(w, "failed to read file", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(fileResponse{Path: path, Content: string(content)}); err != nil {
+		log.Printf("server: file read encode error: %v", err)
+	}
+}
+
+// handleFileSave handles PUT /api/file.
+// Writes the provided content to the given absolute path. The path must
+// already exist within a directory that is accessible on the filesystem.
+func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
+	var body fileSaveRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONError(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Path == "" {
+		writeJSONError(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	path := filepath.Clean(body.Path)
+	if !filepath.IsAbs(path) {
+		writeJSONError(w, "path must be absolute", http.StatusBadRequest)
+		return
+	}
+	if err := os.WriteFile(path, []byte(body.Content), 0o644); err != nil {
+		log.Printf("server: file save error path=%s: %v", path, err)
+		writeJSONError(w, "failed to save file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("server: file saved path=%s", path)
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"ok":true}`)
+}
+
 // scaffoldFile is a name/content pair for a file to write during workspace creation.
 type scaffoldFile struct {
 	// name is the filename to write inside the workspace directory.

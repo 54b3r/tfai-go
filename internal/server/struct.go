@@ -72,3 +72,19 @@ type createWorkspaceResponse struct {
 	// Prompt is a pre-filled chat prompt if Description was provided.
 	Prompt string `json:"prompt,omitempty"`
 }
+
+// fileResponse is the JSON response for GET /api/file.
+type fileResponse struct {
+	// Path is the absolute path of the file that was read.
+	Path string `json:"path"`
+	// Content is the raw file content.
+	Content string `json:"content"`
+}
+
+// fileSaveRequest is the JSON body for PUT /api/file.
+type fileSaveRequest struct {
+	// Path is the absolute path of the file to write.
+	Path string `json:"path"`
+	// Content is the new file content to write.
+	Content string `json:"content"`
+}

@@ -8,6 +8,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cloudwego/eino/components/model"
@@ -132,7 +135,7 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 // context is prepended to the message before it reaches the LLM.
 func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir string, w io.Writer) (bool, error) {
 	filesWritten := false
-	messages, err := a.buildMessages(ctx, userMessage)
+	messages, err := a.buildMessages(ctx, userMessage, workspaceDir)
 	if err != nil {
 		return filesWritten, fmt.Errorf("agent: failed to build messages: %w", err)
 	}
@@ -186,7 +189,7 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 
 // buildMessages constructs the message slice for the agent, optionally
 // prepending RAG context retrieved for the user's query.
-func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage string) ([]*schema.Message, error) {
+func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage, workspaceDir string) ([]*schema.Message, error) {
 	messages := []*schema.Message{
 		schema.SystemMessage(systemPrompt),
 	}
@@ -203,8 +206,57 @@ func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage string) 
 		}
 	}
 
+	// Inject current workspace file contents so the LLM can read and modify
+	// existing files, not just generate new ones from scratch.
+	if workspaceDir != "" {
+		wsContext, err := buildWorkspaceContext(workspaceDir)
+		if err == nil && wsContext != "" {
+			messages = append(messages, schema.SystemMessage(wsContext))
+		}
+	}
+
 	messages = append(messages, schema.UserMessage(userMessage))
 	return messages, nil
+}
+
+// buildWorkspaceContext reads all .tf files in the workspace directory and
+// formats them into a system message so the LLM can inspect and modify
+// existing Terraform configurations. Returns an empty string if the directory
+// contains no .tf files. Non-fatal errors (unreadable files) are skipped.
+func buildWorkspaceContext(workspaceDir string) (string, error) {
+	var sb strings.Builder
+
+	err := filepath.WalkDir(workspaceDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".tf") {
+			return nil
+		}
+		rel, err := filepath.Rel(workspaceDir, path)
+		if err != nil {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil // skip unreadable files
+		}
+		fmt.Fprintf(&sb, "### %s\n```hcl\n%s\n```\n\n", rel, content)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if sb.Len() == 0 {
+		return "", nil
+	}
+
+	return "## Current Workspace Files\n\n" +
+		"The following Terraform files are currently in the workspace. " +
+		"When the user asks to modify, update, or extend the configuration, " +
+		"use these as the base and return the full updated file contents in the JSON envelope.\n\n" +
+		sb.String(), nil
 }
 
 // buildRAGContext formats retrieved documents into a system message that
