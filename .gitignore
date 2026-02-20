@@ -19,6 +19,7 @@ go.work.sum
 # Environment — never commit secrets
 .env
 .env.*
+!.env.example
 
 # IDE
 .idea/
