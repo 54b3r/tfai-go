@@ -43,9 +43,10 @@ type chatRequest struct {
 type workspaceResponse struct {
 	// Dir is the cleaned absolute path that was inspected.
 	Dir string `json:"dir"`
-	// Files is the list of .tf and .tfvars filenames found in Dir.
+	// Files is the recursive list of .tf and .tfvars files found under Dir,
+	// returned as paths relative to Dir (e.g. "modules/vpc/main.tf").
 	Files []string `json:"files"`
-	// Dirs is the list of subdirectory names found in Dir (excluding hidden dirs).
+	// Dirs is kept for backward compatibility but is now always empty.
 	Dirs []string `json:"dirs"`
 	// Initialized indicates a .terraform directory is present.
 	Initialized bool `json:"initialized"`
@@ -83,6 +84,8 @@ type fileResponse struct {
 
 // fileSaveRequest is the JSON body for PUT /api/file.
 type fileSaveRequest struct {
+	// WorkspaceDir is the declared workspace root. The path must resolve within it.
+	WorkspaceDir string `json:"workspaceDir"`
 	// Path is the absolute path of the file to write.
 	Path string `json:"path"`
 	// Content is the new file content to write.

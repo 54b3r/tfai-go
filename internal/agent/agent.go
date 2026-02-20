@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,8 +199,7 @@ func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage, workspa
 		docs, err := a.retriever.Retrieve(ctx, userMessage, a.ragTopK)
 		if err != nil {
 			// RAG failure is non-fatal — log and continue without context.
-			// TODO: wire in a logger here.
-			_ = err
+			log.Printf("agent: RAG retrieval failed (continuing without context): %v", err)
 		} else if len(docs) > 0 {
 			ragContext := buildRAGContext(docs)
 			messages = append(messages, schema.SystemMessage(ragContext))

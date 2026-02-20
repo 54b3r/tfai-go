@@ -8,13 +8,15 @@ import (
 )
 
 func applyFiles(output *TerraformAgentOutput, workspaceDir string) error {
+	// Clean the workspace root once so all comparisons are against a canonical path.
+	root := filepath.Clean(workspaceDir)
 
 	// Loop over output.Files output by the agent and add them to filesystem
 	for _, file := range output.Files {
-		filePath := filepath.Join(workspaceDir, file.Path)
-		// Safety check to ensure file is within workspace still
-		if !strings.HasPrefix(filePath, workspaceDir) {
-			return fmt.Errorf("agent::applyFiles: file path %s is outside workspace %s", filePath, workspaceDir)
+		filePath := filepath.Join(root, file.Path)
+		// Separator-aware prefix check prevents /tmp/foo matching /tmp/foobar.
+		if !strings.HasPrefix(filePath+string(filepath.Separator), root+string(filepath.Separator)) {
+			return fmt.Errorf("agent::applyFiles: file path %s is outside workspace %s", filePath, root)
 		}
 		// Create any subdirectories
 		dir := filepath.Dir(filePath)

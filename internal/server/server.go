@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -56,7 +57,14 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	mux.HandleFunc("POST /api/workspace/create", s.handleWorkspaceCreate)
 	mux.HandleFunc("GET /api/file", s.handleFileRead)
 	mux.HandleFunc("PUT /api/file", s.handleFileSave)
-	mux.Handle("/", http.FileServer(http.Dir("ui/static")))
+	// Resolve ui/static relative to the binary's working directory.
+	// Using an absolute path avoids breakage when the binary is run from a
+	// different working directory than the project root.
+	uiDir, err := filepath.Abs("ui/static")
+	if err != nil {
+		return nil, fmt.Errorf("server: failed to resolve ui/static path: %w", err)
+	}
+	mux.Handle("/", http.FileServer(http.Dir(uiDir)))
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
@@ -93,9 +101,14 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
+// maxChatBodyBytes is the maximum allowed size for a /api/chat request body.
+// Prevents unbounded memory allocation from oversized requests.
+const maxChatBodyBytes = 1 << 20 // 1 MiB
+
 // handleChat handles POST /api/chat requests. It streams the agent's response
 // using Server-Sent Events (SSE) so the UI can render tokens as they arrive.
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxChatBodyBytes)
 	var req chatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -106,11 +119,23 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate workspaceDir is absolute if provided — same constraint as file API.
+	if req.WorkspaceDir != "" && !filepath.IsAbs(filepath.Clean(req.WorkspaceDir)) {
+		http.Error(w, "workspaceDir must be an absolute path", http.StatusBadRequest)
+		return
+	}
+
 	// Set SSE headers so the client receives a streaming response.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// Restrict CORS to the configured localhost origin only — this server is local-only.
+	origin := r.Header.Get("Origin")
+	allowedOrigin127 := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Port)
+	allowedOriginLocal := fmt.Sprintf("http://localhost:%d", s.cfg.Port)
+	if origin == allowedOrigin127 || origin == allowedOriginLocal || origin == "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

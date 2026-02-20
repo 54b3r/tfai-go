@@ -5,6 +5,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -30,8 +31,21 @@ func writeJSONError(w http.ResponseWriter, msg string, status int) {
 	http.Error(w, `{"error":"`+msg+`"}`, status)
 }
 
+// confineToDir validates that target resolves to a path inside root after
+// cleaning both. This prevents path traversal attacks (e.g. "../../etc/passwd").
+// Returns the cleaned absolute target path or an error.
+func confineToDir(root, target string) (string, error) {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if !strings.HasPrefix(target+string(filepath.Separator), root+string(filepath.Separator)) {
+		return "", fmt.Errorf("path is outside the workspace directory")
+	}
+	return target, nil
+}
+
 // handleWorkspace handles GET /api/workspace?dir=<path>.
-// It returns the directory contents, TF file list, subdirs, and workspace status flags.
+// It recursively walks the directory and returns all .tf/.tfvars files as
+// relative paths (e.g. "modules/vpc/main.tf"), plus workspace status flags.
 func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	dir, err := resolveAbsDir(r.URL.Query().Get("dir"))
 	if err != nil {
@@ -39,13 +53,8 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			writeJSONError(w, "directory not found", http.StatusNotFound)
-			return
-		}
-		writeJSONError(w, "failed to read directory", http.StatusInternalServerError)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		writeJSONError(w, "directory not found", http.StatusNotFound)
 		return
 	}
 
@@ -55,17 +64,20 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		Dirs:  []string{},
 	}
 
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() {
-			if name == ".terraform" {
-				resp.Initialized = true
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		name := d.Name()
+		if d.IsDir() {
+			// Skip hidden dirs entirely (don't descend into .terraform)
+			if strings.HasPrefix(name, ".") {
+				if name == ".terraform" {
+					resp.Initialized = true
+				}
+				return filepath.SkipDir
 			}
-			// Exclude hidden directories from the visible Dirs list.
-			if !strings.HasPrefix(name, ".") {
-				resp.Dirs = append(resp.Dirs, name)
-			}
-			continue
+			return nil
 		}
 		switch name {
 		case "terraform.tfstate":
@@ -75,8 +87,15 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		}
 		ext := filepath.Ext(name)
 		if ext == ".tf" || ext == ".tfvars" {
-			resp.Files = append(resp.Files, name)
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr == nil {
+				resp.Files = append(resp.Files, rel)
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("server: workspace walk error: %v", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -86,7 +105,8 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleWorkspaceCreate handles POST /api/workspace/create.
-// It creates the directory and writes a minimal Terraform scaffold into it.
+// It writes a minimal Terraform scaffold into an existing directory.
+// The directory must already exist — this handler will not create it.
 func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	var body createWorkspaceRequest
 	defer r.Body.Close()
@@ -102,15 +122,22 @@ func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject if the directory does not already exist — we do not create directories.
+	if info, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			writeJSONError(w, "directory does not exist — create it first, then scaffold", http.StatusBadRequest)
+			return
+		}
+		writeJSONError(w, "failed to access directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	} else if !info.IsDir() {
+		writeJSONError(w, "path exists but is not a directory", http.StatusBadRequest)
+		return
+	}
+
 	resp := createWorkspaceResponse{Dir: dir}
 	if body.Description != "" {
 		resp.Prompt = "Create a Terraform workspace for: " + body.Description
-	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		log.Printf("server: workspace create mkdir error: %v", err)
-		writeJSONError(w, "failed to create directory: "+err.Error(), http.StatusInternalServerError)
-		return
 	}
 
 	for _, f := range scaffoldFiles() {
@@ -129,17 +156,23 @@ func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleFileRead handles GET /api/file?path=<absolute-path>.
-// Returns the raw content of the requested file. The path must be absolute.
+// handleFileRead handles GET /api/file?path=<absolute-path>&workspaceDir=<root>.
+// Returns the raw content of the requested file. The path must resolve within
+// the declared workspaceDir to prevent path traversal.
 func (s *Server) handleFileRead(w http.ResponseWriter, r *http.Request) {
-	raw := r.URL.Query().Get("path")
-	if raw == "" {
+	rawPath := r.URL.Query().Get("path")
+	rawRoot := r.URL.Query().Get("workspaceDir")
+	if rawPath == "" {
 		writeJSONError(w, "path is required", http.StatusBadRequest)
 		return
 	}
-	path := filepath.Clean(raw)
-	if !filepath.IsAbs(path) {
-		writeJSONError(w, "path must be absolute", http.StatusBadRequest)
+	if rawRoot == "" {
+		writeJSONError(w, "workspaceDir is required", http.StatusBadRequest)
+		return
+	}
+	path, err := confineToDir(rawRoot, rawPath)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	content, err := os.ReadFile(path)
@@ -158,8 +191,8 @@ func (s *Server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFileSave handles PUT /api/file.
-// Writes the provided content to the given absolute path. The path must
-// already exist within a directory that is accessible on the filesystem.
+// Writes content to the given path. The path must resolve within the declared
+// workspaceDir to prevent writes outside the user's workspace.
 func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
 	var body fileSaveRequest
 	defer r.Body.Close()
@@ -171,9 +204,13 @@ func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "path is required", http.StatusBadRequest)
 		return
 	}
-	path := filepath.Clean(body.Path)
-	if !filepath.IsAbs(path) {
-		writeJSONError(w, "path must be absolute", http.StatusBadRequest)
+	if body.WorkspaceDir == "" {
+		writeJSONError(w, "workspaceDir is required", http.StatusBadRequest)
+		return
+	}
+	path, err := confineToDir(body.WorkspaceDir, body.Path)
+	if err != nil {
+		writeJSONError(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	if err := os.WriteFile(path, []byte(body.Content), 0o644); err != nil {

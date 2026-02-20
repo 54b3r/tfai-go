@@ -256,8 +256,9 @@ func TestHandleWorkspace_TFWorkspace(t *testing.T) {
 	mustWriteFile(t, filepath.Join(dir, "main.tf"), "# main")
 	mustWriteFile(t, filepath.Join(dir, "terraform.tfstate"), "{}")
 	mustWriteFile(t, filepath.Join(dir, ".terraform.lock.hcl"), "# lock")
-	mustMkdir(t, filepath.Join(dir, ".terraform")) // presence signals `terraform init` was run
-	mustMkdir(t, filepath.Join(dir, "modules"))    // a visible (non-hidden) subdirectory
+	mustMkdir(t, filepath.Join(dir, ".terraform"))                      // presence signals `terraform init` was run
+	mustMkdir(t, filepath.Join(dir, "modules"))                         // a visible (non-hidden) subdirectory
+	mustWriteFile(t, filepath.Join(dir, "modules", "main.tf"), "# mod") // file inside subdir
 
 	s := newTestServer()
 	req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+dir, nil)
@@ -285,15 +286,22 @@ func TestHandleWorkspace_TFWorkspace(t *testing.T) {
 		t.Error("HasLockfile: expected true — .terraform.lock.hcl is present")
 	}
 
-	// Only main.tf should appear in Files — .terraform.lock.hcl is hidden and
-	// terraform.tfstate is not a .tf or .tfvars file.
-	if len(resp.Files) != 1 || resp.Files[0] != "main.tf" {
-		t.Errorf("Files: expected [main.tf], got %v", resp.Files)
+	// Files is now a recursive relative-path list. main.tf (root) and
+	// modules/main.tf (subdir) should both appear. .terraform.lock.hcl is
+	// hidden and terraform.tfstate is not a .tf/.tfvars file.
+	wantFiles := map[string]bool{"main.tf": true, "modules/main.tf": true}
+	if len(resp.Files) != len(wantFiles) {
+		t.Errorf("Files: expected %v, got %v", wantFiles, resp.Files)
+	}
+	for _, f := range resp.Files {
+		if !wantFiles[f] {
+			t.Errorf("Files: unexpected entry %q", f)
+		}
 	}
 
-	// .terraform is a hidden directory so only "modules" should appear in Dirs.
-	if len(resp.Dirs) != 1 || resp.Dirs[0] != "modules" {
-		t.Errorf("Dirs: expected [modules], got %v", resp.Dirs)
+	// Dirs is always empty in the new shape — files carry their own path.
+	if len(resp.Dirs) != 0 {
+		t.Errorf("Dirs: expected [], got %v", resp.Dirs)
 	}
 }
 
@@ -373,9 +381,9 @@ func TestHandleWorkspaceCreate_InvalidJSON(t *testing.T) {
 func TestHandleWorkspaceCreate_Success(t *testing.T) {
 	t.Parallel()
 
-	// Use a subdirectory of t.TempDir() that does NOT exist yet — the handler
-	// must create it via os.MkdirAll. This exercises the mkdir logic too.
+	// The directory must already exist — the handler no longer creates it.
 	dir := filepath.Join(t.TempDir(), "new-workspace")
+	mustMkdir(t, dir)
 	body := `{"dir":"` + dir + `","description":"S3 bucket"}`
 
 	s := newTestServer()
@@ -415,6 +423,27 @@ func TestHandleWorkspaceCreate_Success(t *testing.T) {
 	// The count of files in the response must match what scaffoldFiles() declares.
 	if len(resp.Files) != len(scaffoldFiles()) {
 		t.Errorf("Files count: expected %d, got %d", len(scaffoldFiles()), len(resp.Files))
+	}
+}
+
+// TestHandleWorkspaceCreate_NonExistentDir verifies that the handler rejects
+// a request for a directory that does not exist — we no longer create dirs.
+func TestHandleWorkspaceCreate_NonExistentDir(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "does-not-exist")
+	body := `{"dir":"` + dir + `"}`
+
+	s := newTestServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/workspace/create",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	s.handleWorkspaceCreate(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request, got %d — body: %s", w.Code, w.Body.String())
 	}
 }
 
