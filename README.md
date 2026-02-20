@@ -138,7 +138,8 @@ make test           # Run unit tests
 make lint           # Run golangci-lint
 make lint-fix       # Run golangci-lint with auto-fix
 make fmt            # Run gofmt + goimports
-make gate           # Full pre-commit gate: build + vet + lint + test + binary smoke
+make gate           # Full pre-commit gate: build + vet + lint + vulncheck + test + binary smoke
+make install-tools  # Install dev tools (golangci-lint, goimports, govulncheck)
 make ingest-aws     # Ingest core AWS provider docs
 make ingest-azure   # Ingest core Azure provider docs
 make ingest-gcp     # Ingest core GCP provider docs
@@ -167,11 +168,13 @@ startup warning — suitable for local development only.
 |---|---|---|---|---|
 | `GET` | `/api/health` | No | No | Liveness — always 200 while process is running |
 | `GET` | `/api/ready` | No | No | Readiness — probes LLM + Qdrant, returns 200 or 503 |
+| `GET` | `/api/config` | No | No | UI bootstrap — returns `{"auth_required": true/false}` |
 | `POST` | `/api/chat` | Yes | Yes | Stream agent response (SSE) |
 | `GET` | `/api/workspace` | Yes | Yes | List workspace files and metadata |
 | `POST` | `/api/workspace/create` | Yes | Yes | Scaffold a new workspace |
 | `GET` | `/api/file` | Yes | Yes | Read a file |
 | `PUT` | `/api/file` | Yes | Yes | Write a file |
+| `GET` | `/metrics` | No | No | Prometheus metrics scrape endpoint |
 
 ### Rate limiting
 
@@ -203,11 +206,24 @@ tfai binds to `127.0.0.1` by default and is designed for **single-user local use
 | Path traversal via LLM output | All file writes confined to declared workspace root |
 | Path traversal via API params | `confineToDir` enforced on all file API calls |
 | Arbitrary directory creation | `POST /api/workspace/create` requires pre-existing directory |
-| Oversized request DoS | `http.MaxBytesReader` (1 MiB) on all POST/PUT handlers |
+| Oversized request DoS | `http.MaxBytesReader` (1 MiB) on `/api/chat` |
 | Secret leakage | Credentials only from env vars, never logged or returned |
 | Prompt injection via workspace | Only `.tf` files injected into LLM context |
 
 See `.windsurf/rules/` for the full coding, SRE, and security policy.
+
+---
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [docs/TESTING.md](docs/TESTING.md) | Manual testing & smoke test guide — step-by-step verification of every feature |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Unified 3-tier roadmap (Immediate → Medium → Complete) |
+| [docs/REVIEW.md](docs/REVIEW.md) | Full codebase review and architecture scorecard |
+| [docs/SRE_ASSESSMENT.md](docs/SRE_ASSESSMENT.md) | SRE readiness assessment — profiling, security, logging, observability |
+| [docs/STRATEGIC_ANALYSIS.md](docs/STRATEGIC_ANALYSIS.md) | Strategic analysis — accelerator vs product, MCP evaluation |
+| [.env.example](.env.example) | Environment variable reference with per-provider examples |
 
 ---
 
