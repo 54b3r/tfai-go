@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -25,10 +27,21 @@ type Config struct {
 	Logger *slog.Logger
 }
 
+// querier is the interface handleChat calls to stream a response.
+// *agent.TerraformAgent satisfies it; tests inject a fake.
+type querier interface {
+	// Query streams the agent response for userMessage to w.
+	// Returns true if files were written to workspaceDir.
+	Query(ctx context.Context, userMessage, workspaceDir string, w io.Writer) (bool, error)
+}
+
 // Server is the HTTP server that wraps the TerraformAgent.
 type Server struct {
 	// agent is the TF-AI agent that handles all queries.
 	agent *agent.TerraformAgent
+	// querier is the interface used by handleChat; set to agent in production,
+	// overridden by a fake in tests.
+	querier querier
 	// cfg holds the resolved server configuration.
 	cfg *Config
 	// httpServer is the underlying net/http server.
