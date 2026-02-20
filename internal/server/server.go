@@ -57,7 +57,14 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	mux.HandleFunc("POST /api/workspace/create", s.handleWorkspaceCreate)
 	mux.HandleFunc("GET /api/file", s.handleFileRead)
 	mux.HandleFunc("PUT /api/file", s.handleFileSave)
-	mux.Handle("/", http.FileServer(http.Dir("ui/static")))
+	// Resolve ui/static relative to the binary's working directory.
+	// Using an absolute path avoids breakage when the binary is run from a
+	// different working directory than the project root.
+	uiDir, err := filepath.Abs("ui/static")
+	if err != nil {
+		return nil, fmt.Errorf("server: failed to resolve ui/static path: %w", err)
+	}
+	mux.Handle("/", http.FileServer(http.Dir(uiDir)))
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
@@ -122,9 +129,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	// Restrict CORS to localhost origins only — this server is local-only.
+	// Restrict CORS to the configured localhost origin only — this server is local-only.
 	origin := r.Header.Get("Origin")
-	if origin == "http://127.0.0.1:8080" || origin == "http://localhost:8080" || origin == "" {
+	allowedOrigin127 := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Port)
+	allowedOriginLocal := fmt.Sprintf("http://localhost:%d", s.cfg.Port)
+	if origin == allowedOrigin127 || origin == allowedOriginLocal || origin == "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 	}
 

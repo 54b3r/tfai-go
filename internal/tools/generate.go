@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -73,13 +74,21 @@ func (t *GenerateTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 		return "", fmt.Errorf("terraform_generate: files map must not be empty")
 	}
 
-	if err := os.MkdirAll(input.Dir, 0o755); err != nil {
-		return "", fmt.Errorf("terraform_generate: failed to create directory %q: %w", input.Dir, err)
+	root := filepath.Clean(input.Dir)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", fmt.Errorf("terraform_generate: failed to create directory %q: %w", root, err)
 	}
 
 	written := make([]string, 0, len(input.Files))
 	for name, content := range input.Files {
-		path := filepath.Join(input.Dir, name)
+		path := filepath.Join(root, name)
+		// Separator-aware confinement — prevents path traversal via LLM-supplied filenames.
+		if !strings.HasPrefix(path+string(filepath.Separator), root+string(filepath.Separator)) {
+			return "", fmt.Errorf("terraform_generate: file path %q is outside target directory", name)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return "", fmt.Errorf("terraform_generate: failed to create subdir for %q: %w", name, err)
+		}
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			return "", fmt.Errorf("terraform_generate: failed to write %q: %w", path, err)
 		}
