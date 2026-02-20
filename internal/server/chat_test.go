@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // ---------------------------------------------------------------------------
@@ -35,11 +38,21 @@ func (f *fakeQuerier) Query(_ context.Context, _, _ string, w io.Writer) (bool, 
 }
 
 // newChatTestServer builds a *Server wired with the given querier fake.
+// A fresh isolated prometheus.Registry is used so tests do not pollute the
+// global default registerer.
 func newChatTestServer(q querier) *Server {
+	reg := prometheus.NewRegistry()
+	cfg := &Config{
+		Port:            8080,
+		ChatTimeout:     5 * time.Minute,
+		MetricsRegistry: reg,
+		MetricsGatherer: reg,
+	}
 	return &Server{
 		querier: q,
-		cfg:     &Config{Port: 8080},
+		cfg:     cfg,
 		log:     slog.Default(),
+		metrics: newServerMetrics(reg),
 	}
 }
 

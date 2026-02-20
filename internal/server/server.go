@@ -15,6 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/54b3r/tfai-go/internal/agent"
 	"github.com/54b3r/tfai-go/internal/logging"
 	"github.com/54b3r/tfai-go/internal/tracing"
@@ -62,6 +65,12 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	if cfg.ChatTimeout == 0 {
 		cfg.ChatTimeout = 5 * time.Minute
 	}
+	if cfg.MetricsRegistry == nil {
+		cfg.MetricsRegistry = prometheus.DefaultRegisterer
+	}
+	if cfg.MetricsGatherer == nil {
+		cfg.MetricsGatherer = prometheus.DefaultGatherer
+	}
 
 	rl, stopRL := newRateLimiter(cfg.RateLimit, cfg.RateBurst, cfg.Logger)
 
@@ -78,6 +87,7 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 		log:     cfg.Logger,
 		pingers: cfg.Pingers,
 		stopRL:  stopRL,
+		metrics: newServerMetrics(cfg.MetricsRegistry),
 	}
 
 	mux := http.NewServeMux()
@@ -96,6 +106,9 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/ready", s.handleReady)
 	mux.HandleFunc("GET /api/config", s.handleConfig)
+	// /metrics is intentionally unauthenticated — Prometheus scrapers run
+	// outside the auth boundary. Restrict network access at the infra layer.
+	mux.Handle("GET /metrics", promhttp.HandlerFor(cfg.MetricsGatherer, promhttp.HandlerOpts{}))
 	// Resolve ui/static relative to the binary's working directory.
 	// Using an absolute path avoids breakage when the binary is run from a
 	// different working directory than the project root.
@@ -199,16 +212,30 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	)
 	log.Info("chat start", slog.String("message", req.Message))
 
+	// Track active streams and record duration + outcome for every request.
+	s.metrics.chatActiveStreams.Inc()
+	start := time.Now()
+	defer s.metrics.chatActiveStreams.Dec()
+
 	// sseWriter wraps the ResponseWriter to emit SSE-formatted data events.
 	sw := &sseWriter{w: w, flusher: flusher}
 
 	filesWritten, err := s.querier.Query(ctx, req.Message, req.WorkspaceDir, sw)
 	if err != nil {
+		outcome := "error"
+		if ctx.Err() != nil {
+			outcome = "timeout"
+		}
+		s.metrics.chatRequestsTotal.WithLabelValues(outcome).Inc()
+		s.metrics.chatDurationSeconds.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
 		log.Error("chat agent error", slog.Any("error", err))
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		flusher.Flush()
 		return
 	}
+
+	s.metrics.chatRequestsTotal.WithLabelValues("ok").Inc()
+	s.metrics.chatDurationSeconds.WithLabelValues("ok").Observe(time.Since(start).Seconds())
 
 	if filesWritten {
 		log.Info("chat files written")

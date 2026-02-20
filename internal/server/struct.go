@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/54b3r/tfai-go/internal/agent"
 )
 
@@ -39,6 +41,13 @@ type Config struct {
 	// ChatTimeout is the maximum duration for a single /api/chat request,
 	// including LLM streaming. Defaults to 5 minutes if zero.
 	ChatTimeout time.Duration
+	// MetricsRegistry is the Prometheus registry used to register server
+	// metrics. If nil, prometheus.DefaultRegisterer / DefaultGatherer are used.
+	// Inject a fresh prometheus.NewRegistry() in tests to keep them hermetic.
+	MetricsRegistry prometheus.Registerer
+	// MetricsGatherer is the Prometheus gatherer paired with MetricsRegistry.
+	// If nil, prometheus.DefaultGatherer is used.
+	MetricsGatherer prometheus.Gatherer
 }
 
 // querier is the interface handleChat calls to stream a response.
@@ -66,6 +75,9 @@ type Server struct {
 	pingers []Pinger
 	// stopRL stops the rate limiter's background eviction goroutine on shutdown.
 	stopRL func()
+	// metrics holds all Prometheus counters, histograms, and gauges for this
+	// server instance.
+	metrics *serverMetrics
 }
 
 // chatRequest is the JSON body for POST /api/chat.
