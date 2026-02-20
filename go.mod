@@ -4,12 +4,14 @@ go 1.26.0
 
 require (
 	github.com/cloudwego/eino v0.7.13
+	github.com/cloudwego/eino-ext/callbacks/langfuse v0.0.0-20260214075714-8f11ae8e65a2
 	github.com/cloudwego/eino-ext/components/model/ark v0.1.29
 	github.com/cloudwego/eino-ext/components/model/gemini v0.1.7
 	github.com/cloudwego/eino-ext/components/model/ollama v0.1.8
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.8
 	github.com/qdrant/go-client v1.16.2
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/time v0.14.0
 	google.golang.org/genai v1.36.0
 )
 
@@ -24,7 +26,6 @@ require (
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
-	github.com/cloudwego/eino-ext/callbacks/langfuse v0.0.0-20260214075714-8f11ae8e65a2 // indirect
 	github.com/cloudwego/eino-ext/libs/acl/langfuse v0.0.0-20251124083837-ce2e7e196f9f // indirect
 	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.13 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

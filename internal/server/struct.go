@@ -28,6 +28,11 @@ type Config struct {
 	// Pingers is the ordered list of dependency probes run by GET /api/ready.
 	// If empty, /api/ready returns 200 with no checks (liveness-only mode).
 	Pingers []Pinger
+	// RateLimit is the sustained request rate allowed per IP on rate-limited
+	// endpoints (requests/second). Defaults to 10 if zero.
+	RateLimit float64
+	// RateBurst is the maximum instantaneous burst per IP. Defaults to 20 if zero.
+	RateBurst int
 }
 
 // querier is the interface handleChat calls to stream a response.
@@ -53,6 +58,8 @@ type Server struct {
 	log *slog.Logger
 	// pingers is the ordered list of dependency probes for GET /api/ready.
 	pingers []Pinger
+	// stopRL stops the rate limiter's background eviction goroutine on shutdown.
+	stopRL func()
 }
 
 // chatRequest is the JSON body for POST /api/chat.
