@@ -84,6 +84,8 @@ type fileResponse struct {
 
 // fileSaveRequest is the JSON body for PUT /api/file.
 type fileSaveRequest struct {
+	// WorkspaceDir is the declared workspace root. The path must resolve within it.
+	WorkspaceDir string `json:"workspaceDir"`
 	// Path is the absolute path of the file to write.
 	Path string `json:"path"`
 	// Content is the new file content to write.

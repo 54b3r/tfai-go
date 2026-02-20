@@ -752,7 +752,8 @@
       } else {
         // No files — offer to scaffold
         html += '<div style="padding:8px 28px;font-size:11px;color:var(--text-muted)">No .tf files found</div>';
-        html += `<div style="padding:4px 28px"><button class="sidebar-btn" style="font-size:11px" onclick="createWorkspace('${dir.replace(/'/g, "\\'")}')">+ Scaffold workspace</button></div>`;
+        html += `<div style="padding:4px 28px;font-size:11px;color:var(--text-muted)">Create the directory first, then scaffold starter files into it.</div>`;
+        html += `<div style="padding:4px 28px"><button class="sidebar-btn" style="font-size:11px" onclick="createWorkspace('${dir.replace(/'/g, "\\'")}')">+ Scaffold starter files</button></div>`;
       }
 
       tree.innerHTML = html;
@@ -796,7 +797,8 @@
     if (el) el.classList.add('active');
 
     try {
-      const resp = await fetch('/api/file?path=' + encodeURIComponent(path));
+      const wsDir = document.getElementById('workspaceDir').value.trim();
+      const resp = await fetch('/api/file?path=' + encodeURIComponent(path) + '&workspaceDir=' + encodeURIComponent(wsDir));
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }));
         setEditorStatus('Error: ' + (err.error || resp.statusText), true);
@@ -857,10 +859,11 @@
     const content = document.getElementById('editorTextarea').value;
     setEditorStatus('Saving...');
     try {
+      const wsDir = document.getElementById('workspaceDir').value.trim();
       const resp = await fetch('/api/file', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: editorPath, content }),
+        body: JSON.stringify({ path: editorPath, workspaceDir: wsDir, content }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }));

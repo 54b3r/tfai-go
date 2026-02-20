@@ -381,9 +381,9 @@ func TestHandleWorkspaceCreate_InvalidJSON(t *testing.T) {
 func TestHandleWorkspaceCreate_Success(t *testing.T) {
 	t.Parallel()
 
-	// Use a subdirectory of t.TempDir() that does NOT exist yet — the handler
-	// must create it via os.MkdirAll. This exercises the mkdir logic too.
+	// The directory must already exist — the handler no longer creates it.
 	dir := filepath.Join(t.TempDir(), "new-workspace")
+	mustMkdir(t, dir)
 	body := `{"dir":"` + dir + `","description":"S3 bucket"}`
 
 	s := newTestServer()
@@ -423,6 +423,27 @@ func TestHandleWorkspaceCreate_Success(t *testing.T) {
 	// The count of files in the response must match what scaffoldFiles() declares.
 	if len(resp.Files) != len(scaffoldFiles()) {
 		t.Errorf("Files count: expected %d, got %d", len(scaffoldFiles()), len(resp.Files))
+	}
+}
+
+// TestHandleWorkspaceCreate_NonExistentDir verifies that the handler rejects
+// a request for a directory that does not exist — we no longer create dirs.
+func TestHandleWorkspaceCreate_NonExistentDir(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "does-not-exist")
+	body := `{"dir":"` + dir + `"}`
+
+	s := newTestServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/workspace/create",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	s.handleWorkspaceCreate(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request, got %d — body: %s", w.Code, w.Body.String())
 	}
 }
 
