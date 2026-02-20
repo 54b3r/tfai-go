@@ -36,6 +36,9 @@ type Config struct {
 	// APIKey is the Bearer token required on all protected /api/* routes.
 	// If empty, authentication is disabled (development mode).
 	APIKey string
+	// ChatTimeout is the maximum duration for a single /api/chat request,
+	// including LLM streaming. Defaults to 5 minutes if zero.
+	ChatTimeout time.Duration
 }
 
 // querier is the interface handleChat calls to stream a response.

@@ -59,6 +59,9 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	if cfg.RateBurst == 0 {
 		cfg.RateBurst = defaultRateBurst
 	}
+	if cfg.ChatTimeout == 0 {
+		cfg.ChatTimeout = 5 * time.Minute
+	}
 
 	rl, stopRL := newRateLimiter(cfg.RateLimit, cfg.RateBurst, cfg.Logger)
 
@@ -92,6 +95,7 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	// Unprotected routes.
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/ready", s.handleReady)
+	mux.HandleFunc("GET /api/config", s.handleConfig)
 	// Resolve ui/static relative to the binary's working directory.
 	// Using an absolute path avoids breakage when the binary is run from a
 	// different working directory than the project root.
@@ -182,7 +186,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// Stamp the request context with a unique session ID so each chat
 	// request appears as a distinct named trace in Langfuse.
 	sessionID := fmt.Sprintf("tfai-%d-%d", time.Now().UnixMilli(), requestCounter.Add(1))
-	ctx := tracing.SetRequestTrace(r.Context(), sessionID)
+
+	// Apply a hard deadline on the LLM call so a hung backend never blocks
+	// the goroutine indefinitely. The timeout matches WriteTimeout by default.
+	chatCtx, cancelChat := context.WithTimeout(r.Context(), s.cfg.ChatTimeout)
+	defer cancelChat()
+	ctx := tracing.SetRequestTrace(chatCtx, sessionID)
 
 	log := logging.FromContext(r.Context()).With(
 		slog.String("session_id", sessionID),
@@ -208,6 +217,18 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// Signal stream completion.
 	fmt.Fprintf(w, "event: done\ndata: [DONE]\n\n")
 	flusher.Flush()
+}
+
+// handleConfig handles GET /api/config for UI bootstrap.
+// It is intentionally unauthenticated so the UI can determine whether to
+// prompt for an API key before making any protected requests.
+// The API key value is never returned — only its presence is indicated.
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	resp := map[string]bool{"auth_required": s.cfg.APIKey != ""}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		logging.FromContext(r.Context()).Error("config encode error", slog.Any("error", err))
+	}
 }
 
 // handleHealth handles GET /api/health for liveness checks.

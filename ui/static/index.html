@@ -413,9 +413,60 @@
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Auth modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 32px;
+      width: 380px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .modal h2 { font-size: 16px; font-weight: 600; }
+    .modal p  { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+    .modal input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: var(--text);
+      outline: none;
+      width: 100%;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .modal input:focus { border-color: var(--accent); }
+    .modal-error { font-size: 12px; color: var(--error); min-height: 16px; }
+    .modal-btn {
+      padding: 10px;
+      background: var(--accent);
+      border: none; border-radius: 6px;
+      color: #fff; font-size: 14px; font-weight: 500;
+      cursor: pointer;
+    }
+    .modal-btn:hover { background: #6d28d9; }
   </style>
 </head>
 <body>
+
+<!-- Auth modal — shown when TFAI_API_KEY is set server-side -->
+<div class="modal-overlay hidden" id="authModal">
+  <div class="modal">
+    <h2>🔐 API Key Required</h2>
+    <p>This TF-AI server requires an API key. Enter the value of <code style="font-family:monospace;color:var(--accent-lt)">TFAI_API_KEY</code> set on the server.</p>
+    <input type="password" id="apiKeyInput" placeholder="Enter API key…" onkeydown="handleAuthKey(event)" />
+    <div class="modal-error" id="authError"></div>
+    <button class="modal-btn" onclick="submitApiKey()">Connect</button>
+  </div>
+</div>
 
 <header>
   <div class="logo">TF</div>
@@ -522,6 +573,54 @@
 
 <script>
   let isStreaming = false;
+
+  // ── Auth ─────────────────────────────────────────────────────────────────
+  // API key stored in sessionStorage — cleared when the tab closes.
+  // Never stored in source, cookies, or localStorage.
+  let apiKey = sessionStorage.getItem('tfai_api_key') || '';
+
+  // apiFetch wraps fetch() and injects Authorization: Bearer when a key is set.
+  // All /api/* calls (except /api/health, /api/ready, /api/config) must use this.
+  function apiFetch(url, opts = {}) {
+    if (apiKey) {
+      opts.headers = Object.assign({}, opts.headers || {}, {
+        'Authorization': 'Bearer ' + apiKey,
+      });
+    }
+    return fetch(url, opts);
+  }
+
+  function handleAuthKey(e) {
+    if (e.key === 'Enter') submitApiKey();
+  }
+
+  async function submitApiKey() {
+    const input = document.getElementById('apiKeyInput');
+    const key = input.value.trim();
+    if (!key) {
+      document.getElementById('authError').textContent = 'Key must not be empty.';
+      return;
+    }
+    // Probe a protected endpoint to validate the key before accepting it.
+    const resp = await fetch('/api/workspace?dir=/', {
+      headers: { 'Authorization': 'Bearer ' + key },
+    });
+    if (resp.status === 401) {
+      document.getElementById('authError').textContent = 'Invalid key — please try again.';
+      input.value = '';
+      input.focus();
+      return;
+    }
+    apiKey = key;
+    sessionStorage.setItem('tfai_api_key', key);
+    document.getElementById('authModal').classList.add('hidden');
+    document.getElementById('authError').textContent = '';
+  }
+
+  function showAuthModal() {
+    document.getElementById('authModal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('apiKeyInput').focus(), 50);
+  }
 
   function autoResize(el) {
     el.style.height = 'auto';
@@ -649,7 +748,7 @@
     const bubble = appendStreamingMessage();
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, workspaceDir: document.getElementById('workspaceDir').value.trim() }),
@@ -708,7 +807,7 @@
     tree.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--text-muted)">Loading...</div>';
 
     try {
-      const resp = await fetch('/api/workspace?dir=' + encodeURIComponent(dir));
+      const resp = await apiFetch('/api/workspace?dir=' + encodeURIComponent(dir));
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }));
         tree.innerHTML = `<div style="padding:16px;font-size:12px;color:var(--error)">${err.error || 'Failed to load workspace'}</div>`;
@@ -769,7 +868,7 @@
     tree.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--text-muted)">Creating workspace...</div>';
 
     try {
-      const resp = await fetch('/api/workspace/create', {
+      const resp = await apiFetch('/api/workspace/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dir, description: description || '' }),
@@ -798,7 +897,7 @@
 
     try {
       const wsDir = document.getElementById('workspaceDir').value.trim();
-      const resp = await fetch('/api/file?path=' + encodeURIComponent(path) + '&workspaceDir=' + encodeURIComponent(wsDir));
+      const resp = await apiFetch('/api/file?path=' + encodeURIComponent(path) + '&workspaceDir=' + encodeURIComponent(wsDir));
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }));
         setEditorStatus('Error: ' + (err.error || resp.statusText), true);
@@ -860,7 +959,7 @@
     setEditorStatus('Saving...');
     try {
       const wsDir = document.getElementById('workspaceDir').value.trim();
-      const resp = await fetch('/api/file', {
+      const resp = await apiFetch('/api/file', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: editorPath, workspaceDir: wsDir, content }),
@@ -907,16 +1006,43 @@
     el.style.color = isError ? 'var(--error)' : 'var(--text-muted)';
   }
 
-  // Check health and update provider badge
-  fetch('/api/health')
-    .then(r => r.json())
-    .then(() => {
-      document.getElementById('providerBadge').style.color = 'var(--success)';
-    })
-    .catch(() => {
-      document.getElementById('providerBadge').textContent = '● offline';
-      document.getElementById('providerBadge').style.color = 'var(--error)';
-    });
+  // Bootstrap: check /api/config to determine if auth is required,
+  // then check /api/health to update the provider badge.
+  (async function bootstrap() {
+    try {
+      const cfgResp = await fetch('/api/config');
+      const cfg = await cfgResp.json();
+      if (cfg.auth_required) {
+        // If we already have a key in sessionStorage, validate it silently.
+        if (apiKey) {
+          const probe = await fetch('/api/workspace?dir=/', {
+            headers: { 'Authorization': 'Bearer ' + apiKey },
+          });
+          if (probe.status === 401) {
+            // Stored key is no longer valid — clear it and prompt.
+            apiKey = '';
+            sessionStorage.removeItem('tfai_api_key');
+            showAuthModal();
+          }
+        } else {
+          showAuthModal();
+        }
+      }
+    } catch (_) {
+      // /api/config unreachable — proceed unauthenticated, health check will show offline.
+    }
+
+    // Health check — uses plain fetch since /api/health is unprotected.
+    fetch('/api/health')
+      .then(r => r.json())
+      .then(() => {
+        document.getElementById('providerBadge').style.color = 'var(--success)';
+      })
+      .catch(() => {
+        document.getElementById('providerBadge').textContent = '● offline';
+        document.getElementById('providerBadge').style.color = 'var(--error)';
+      });
+  })();
 </script>
 </body>
 </html>
