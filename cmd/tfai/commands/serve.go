@@ -14,6 +14,7 @@ import (
 	"github.com/54b3r/tfai-go/internal/logging"
 	"github.com/54b3r/tfai-go/internal/provider"
 	"github.com/54b3r/tfai-go/internal/server"
+	"github.com/54b3r/tfai-go/internal/store"
 	"github.com/54b3r/tfai-go/internal/tools"
 	"github.com/54b3r/tfai-go/internal/tracing"
 )
@@ -70,9 +71,35 @@ Examples:
 
 			agentTools := buildTools(runner)
 
+			// Open conversation history store. TFAI_HISTORY_DB overrides the
+			// default path (~/.tfai/history.db). Set to empty string to disable.
+			var historyStore store.ConversationStore
+			dbPath := os.Getenv("TFAI_HISTORY_DB")
+			if dbPath != "disabled" {
+				if dbPath == "" {
+					dbPath, err = store.DefaultDBPath()
+					if err != nil {
+						log.Warn("history: could not resolve default DB path, disabling", slog.Any("error", err))
+					}
+				}
+				if dbPath != "" {
+					hs, hsErr := store.Open(dbPath)
+					if hsErr != nil {
+						log.Warn("history: failed to open store, disabling", slog.Any("error", hsErr))
+					} else {
+						historyStore = hs
+						defer func() { _ = hs.Close() }()
+						log.Info("history: store opened", slog.String("path", dbPath))
+					}
+				}
+			} else {
+				log.Info("history: disabled via TFAI_HISTORY_DB=disabled")
+			}
+
 			tfAgent, err := agent.New(ctx, &agent.Config{
 				ChatModel: chatModel,
 				Tools:     agentTools,
+				History:   historyStore,
 			})
 			if err != nil {
 				return fmt.Errorf("serve: failed to initialise agent: %w", err)
