@@ -337,6 +337,78 @@
     }
     .welcome-chip:hover { border-color: var(--accent); color: var(--text); }
 
+    /* ── Editor panel ── */
+    .editor-panel {
+      width: 0;
+      min-width: 0;
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width 0.2s ease;
+      flex-shrink: 0;
+    }
+    .editor-panel.open {
+      width: 420px;
+      min-width: 320px;
+    }
+    .editor-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .editor-filename {
+      flex: 1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .editor-filename.modified { color: var(--warning); }
+    .editor-btn {
+      padding: 4px 10px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .editor-btn:hover { border-color: var(--accent); color: var(--text); }
+    .editor-btn.save { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .editor-btn.save:hover { background: #6d28d9; }
+    .editor-btn.close { font-size: 14px; padding: 2px 7px; }
+    .editor-textarea {
+      flex: 1;
+      background: var(--code-bg);
+      color: var(--text);
+      border: none;
+      outline: none;
+      padding: 14px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      resize: none;
+      tab-size: 2;
+    }
+    .editor-status {
+      padding: 4px 12px;
+      font-size: 10px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      min-height: 22px;
+    }
+    .file-item { cursor: pointer; }
+    .file-item.active { background: var(--border); color: var(--text); }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -428,6 +500,24 @@
       </div>
     </div>
   </main>
+
+  <!-- File editor panel — opens when a file is clicked in the sidebar -->
+  <aside class="editor-panel" id="editorPanel">
+    <div class="editor-header">
+      <span class="editor-filename" id="editorFilename">No file open</span>
+      <button class="editor-btn" onclick="insertPromptFromEditor()">💬 Discuss</button>
+      <button class="editor-btn save" id="editorSaveBtn" onclick="saveFile()">Save</button>
+      <button class="editor-btn close" onclick="closeEditor()" title="Close editor">✕</button>
+    </div>
+    <textarea
+      class="editor-textarea"
+      id="editorTextarea"
+      spellcheck="false"
+      oninput="onEditorChange()"
+      onkeydown="handleEditorKey(event)"
+    ></textarea>
+    <div class="editor-status" id="editorStatus"></div>
+  </aside>
 </div>
 
 <script>
@@ -496,12 +586,52 @@
   }
 
   function renderMarkdown(text) {
-    // Minimal markdown: code blocks, inline code, bold
+    // Fenced code blocks first (before other replacements mangle them)
+    text = text.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, code) =>
+      `<pre><code>${escapeHtml(code.trimEnd())}</code></pre>`);
+    // Process line by line for block elements
+    const lines = text.split('\n');
+    const out = [];
+    let inList = false;
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+      // Skip lines already replaced by code block
+      if (line.startsWith('<pre>')) { if (inList) { out.push('</ul>'); inList = false; } out.push(line); continue; }
+      // Headings
+      if (/^### (.+)/.test(line)) { if (inList) { out.push('</ul>'); inList = false; } out.push(`<h4 style="margin:10px 0 4px;font-size:13px;color:var(--accent-lt)">${line.slice(4)}</h4>`); continue; }
+      if (/^## (.+)/.test(line))  { if (inList) { out.push('</ul>'); inList = false; } out.push(`<h3 style="margin:12px 0 4px;font-size:14px;color:var(--accent-lt)">${line.slice(3)}</h3>`); continue; }
+      if (/^# (.+)/.test(line))   { if (inList) { out.push('</ul>'); inList = false; } out.push(`<h2 style="margin:14px 0 6px;font-size:15px;color:var(--accent-lt)">${line.slice(2)}</h2>`); continue; }
+      // Horizontal rule
+      if (/^---+$/.test(line.trim())) { if (inList) { out.push('</ul>'); inList = false; } out.push('<hr style="border:none;border-top:1px solid var(--border);margin:10px 0">'); continue; }
+      // Bullet list items
+      if (/^[\-\*] (.+)/.test(line)) {
+        if (!inList) { out.push('<ul style="padding-left:18px;margin:6px 0">'); inList = true; }
+        const item = line.replace(/^[\-\*] /, '');
+        out.push(`<li>${inlineMarkdown(item)}</li>`);
+        continue;
+      }
+      // Numbered list
+      if (/^\d+\. (.+)/.test(line)) {
+        if (!inList) { out.push('<ol style="padding-left:18px;margin:6px 0">'); inList = true; }
+        const item = line.replace(/^\d+\. /, '');
+        out.push(`<li>${inlineMarkdown(item)}</li>`);
+        continue;
+      }
+      // Close list on blank line or non-list content
+      if (inList) { out.push('</ul>'); inList = false; }
+      // Blank line → paragraph break
+      if (line.trim() === '') { out.push('<br>'); continue; }
+      out.push(`<p style="margin:4px 0">${inlineMarkdown(line)}</p>`);
+    }
+    if (inList) out.push('</ul>');
+    return out.join('');
+  }
+
+  function inlineMarkdown(text) {
     return text
-      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n/g, '<br>');
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>');
   }
 
   async function sendMessage() {
@@ -553,7 +683,7 @@
               loadWorkspace();
               currentEvent = '';
             } else {
-              fullText += data;
+              fullText += data + '\n';
               bubble.innerHTML = renderMarkdown(fullText);
               document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
             }
@@ -601,10 +731,11 @@
         }
       }
 
-      // Render .tf / .tfvars files
+      // Render .tf / .tfvars files — clickable to open in editor
       if (data.files && data.files.length > 0) {
         for (const f of data.files) {
-          html += `<div class="file-item" style="padding-left:28px"><span class="icon">📄</span>${f}</div>`;
+          const fullPath = dir.replace(/\/+$/, '') + '/' + f;
+          html += `<div class="file-item" style="padding-left:28px" onclick="openFile('${fullPath.replace(/'/g, "\\'")}', this)"><span class="icon">📄</span>${f}</div>`;
         }
       }
 
@@ -642,6 +773,125 @@
     } catch (err) {
       tree.innerHTML = `<div style="padding:16px;font-size:12px;color:var(--error)">Connection error: ${err.message}</div>`;
     }
+  }
+
+  // ── Editor ──────────────────────────────────────────────────────────────
+  let editorPath = null;
+  let editorOriginal = '';
+  let editorModified = false;
+
+  async function openFile(path, el) {
+    // Mark active item in sidebar
+    document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+    if (el) el.classList.add('active');
+
+    try {
+      const resp = await fetch('/api/file?path=' + encodeURIComponent(path));
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        setEditorStatus('Error: ' + (err.error || resp.statusText), true);
+        return;
+      }
+      const data = await resp.json();
+      editorPath = data.path;
+      editorOriginal = data.content;
+      editorModified = false;
+
+      const ta = document.getElementById('editorTextarea');
+      ta.value = data.content;
+
+      const fname = document.getElementById('editorFilename');
+      fname.textContent = path.split('/').pop();
+      fname.classList.remove('modified');
+
+      document.getElementById('editorPanel').classList.add('open');
+      setEditorStatus('Opened ' + path.split('/').pop());
+      ta.focus();
+    } catch (err) {
+      setEditorStatus('Connection error: ' + err.message, true);
+    }
+  }
+
+  function onEditorChange() {
+    if (!editorPath) return;
+    const current = document.getElementById('editorTextarea').value;
+    editorModified = current !== editorOriginal;
+    const fname = document.getElementById('editorFilename');
+    fname.classList.toggle('modified', editorModified);
+    if (editorModified) {
+      fname.textContent = document.getElementById('editorFilename').textContent.replace(' •', '') + ' •';
+    }
+    setEditorStatus(editorModified ? 'Unsaved changes' : '');
+  }
+
+  function handleEditorKey(e) {
+    // Tab → insert 2 spaces
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const ta = document.getElementById('editorTextarea');
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + 2;
+      onEditorChange();
+    }
+    // Ctrl/Cmd+S → save
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveFile();
+    }
+  }
+
+  async function saveFile() {
+    if (!editorPath) return;
+    const content = document.getElementById('editorTextarea').value;
+    setEditorStatus('Saving...');
+    try {
+      const resp = await fetch('/api/file', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: editorPath, content }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        setEditorStatus('Save failed: ' + (err.error || resp.statusText), true);
+        return;
+      }
+      editorOriginal = content;
+      editorModified = false;
+      const fname = document.getElementById('editorFilename');
+      fname.textContent = editorPath.split('/').pop();
+      fname.classList.remove('modified');
+      setEditorStatus('Saved ✓');
+      setTimeout(() => setEditorStatus(''), 2000);
+    } catch (err) {
+      setEditorStatus('Connection error: ' + err.message, true);
+    }
+  }
+
+  function closeEditor() {
+    if (editorModified) {
+      if (!confirm('You have unsaved changes. Close anyway?')) return;
+    }
+    document.getElementById('editorPanel').classList.remove('open');
+    document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+    editorPath = null;
+    editorOriginal = '';
+    editorModified = false;
+  }
+
+  function insertPromptFromEditor() {
+    if (!editorPath) return;
+    const fname = editorPath.split('/').pop();
+    const content = document.getElementById('editorTextarea').value;
+    insertPrompt(`Regarding the file ${fname}:\n\`\`\`hcl\n${content}\n\`\`\`\n\n`);
+    document.getElementById('userInput').focus();
+  }
+
+  function setEditorStatus(msg, isError) {
+    const el = document.getElementById('editorStatus');
+    el.textContent = msg;
+    el.style.color = isError ? 'var(--error)' : 'var(--text-muted)';
   }
 
   // Check health and update provider badge

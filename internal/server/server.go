@@ -11,10 +11,16 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/54b3r/tfai-go/internal/agent"
+	"github.com/54b3r/tfai-go/internal/tracing"
 )
+
+// requestCounter is a monotonically increasing counter used to generate
+// unique per-request session IDs for Langfuse traces.
+var requestCounter atomic.Uint64
 
 // New constructs a Server from the provided agent and config.
 func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
@@ -48,6 +54,8 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
 	mux.HandleFunc("POST /api/workspace/create", s.handleWorkspaceCreate)
+	mux.HandleFunc("GET /api/file", s.handleFileRead)
+	mux.HandleFunc("PUT /api/file", s.handleFileSave)
 	mux.Handle("/", http.FileServer(http.Dir("ui/static")))
 
 	s.httpServer = &http.Server{
@@ -110,12 +118,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("chat: message=%q workspace=%q", req.Message, req.WorkspaceDir)
+	// Stamp the request context with a unique session ID so each chat
+	// request appears as a distinct named trace in Langfuse.
+	sessionID := fmt.Sprintf("tfai-%d-%d", time.Now().UnixMilli(), requestCounter.Add(1))
+	ctx := tracing.SetRequestTrace(r.Context(), sessionID)
+
+	log.Printf("chat: message=%q workspace=%q session=%q", req.Message, req.WorkspaceDir, sessionID)
 
 	// sseWriter wraps the ResponseWriter to emit SSE-formatted data events.
 	sw := &sseWriter{w: w, flusher: flusher}
 
-	filesWritten, err := s.agent.Query(r.Context(), req.Message, req.WorkspaceDir, sw)
+	filesWritten, err := s.agent.Query(ctx, req.Message, req.WorkspaceDir, sw)
 	if err != nil {
 		log.Printf("chat: agent error: %v", err)
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
