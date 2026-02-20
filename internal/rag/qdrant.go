@@ -124,7 +124,10 @@ func (s *QdrantStore) Upsert(ctx context.Context, docs []Document) error {
 
 // Search performs a cosine similarity search and returns the top-k results.
 func (s *QdrantStore) Search(ctx context.Context, queryEmbedding []float32, topK int) ([]Document, error) {
-	limit := uint64(topK)
+	if topK < 0 {
+		topK = 0
+	}
+	limit := uint64(topK) //nolint:gosec // topK is validated non-negative above
 	results, err := s.client.Query(ctx, &qdrant.QueryPoints{
 		CollectionName: s.cfg.Collection,
 		Query:          qdrant.NewQuery(queryEmbedding...),
@@ -181,5 +184,8 @@ func (s *QdrantStore) Delete(ctx context.Context, ids []string) error {
 
 // Close closes the underlying Qdrant gRPC connection.
 func (s *QdrantStore) Close() error {
-	return s.client.Close()
+	if err := s.client.Close(); err != nil {
+		return fmt.Errorf("qdrant: close failed: %w", err)
+	}
+	return nil
 }

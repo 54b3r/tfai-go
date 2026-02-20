@@ -6,6 +6,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -149,7 +150,7 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 	var msgBuf strings.Builder
 	for {
 		msg, err := sr.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -245,7 +246,7 @@ func buildWorkspaceContext(workspaceDir string) (string, error) {
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("agent: workspace walk failed: %w", err)
 	}
 
 	if sb.Len() == 0 {

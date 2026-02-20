@@ -1,0 +1,83 @@
+# golangci-lint configuration for tfai-go.
+# Docs: https://golangci-lint.run/usage/configuration/
+# Compatible with golangci-lint v1.x
+
+linters:
+  disable-all: true
+  enable:
+    # --- Correctness ---
+    - errcheck        # unchecked errors
+    - govet           # go vet checks
+    - staticcheck     # advanced static analysis (SA*, S*, QF*)
+    - ineffassign     # assignments that are never used
+    - unused          # unused code
+
+    # --- Security (SRE rules: security is first-class) ---
+    - gosec           # security anti-patterns (G101–G601)
+
+    # --- Code quality ---
+    - gofmt           # formatting
+    - goimports       # import ordering
+    - misspell        # common spelling mistakes in comments/strings
+    - unconvert       # unnecessary type conversions
+    - prealloc        # slice pre-allocation opportunities
+    - noctx           # http requests without context
+    - bodyclose       # http response body not closed
+
+    # --- Error handling ---
+    - errorlint       # errors.Is/As usage
+    - wrapcheck       # errors from external packages should be wrapped
+
+linters-settings:
+  gosec:
+    excludes:
+      # G304: file path provided as taint input — we handle confinement explicitly
+      # via confineToDir(); suppressing here to avoid noise on intentional reads.
+      - G304
+      # G306: file permissions — we use 0o644/0o755 intentionally throughout.
+      - G306
+
+  errcheck:
+    # Check for errors in type assertions.
+    check-type-assertions: true
+    # Check for errors in blank assignments.
+    check-blank: true
+
+  wrapcheck:
+    ignorePackageGlobs:
+      # Standard library errors are fine to return unwrapped.
+      - "errors"
+      - "fmt"
+
+  goimports:
+    local-prefixes: github.com/54b3r/tfai-go
+
+issues:
+  exclude-rules:
+    # Test helpers don't need error wrapping or security analysis.
+    - path: "_test\\.go"
+      linters:
+        - wrapcheck
+        - gosec
+
+    # SA1019: model.ChatModel is deprecated in eino — tracked upstream.
+    # We cannot migrate until eino-ext provider constructors return ToolCallingChatModel.
+    - path: "internal/provider/"
+      linters:
+        - staticcheck
+      text: "SA1019"
+    - path: "internal/agent/"
+      linters:
+        - staticcheck
+      text: "SA1019"
+
+    # Provider backend constructors are thin pass-throughs to eino-ext — wrapping
+    # the constructor error adds no diagnostic value.
+    - path: "internal/provider/backends\\.go"
+      linters:
+        - wrapcheck
+
+    # CLI entry points return errors directly to cobra — wrapping adds no value.
+    - path: "cmd/tfai/commands/"
+      linters:
+        - wrapcheck

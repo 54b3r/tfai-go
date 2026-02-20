@@ -59,7 +59,7 @@ Examples:
 				outDir, args[0],
 			)
 
-			_, err = tfAgent.Query(ctx, prompt, outDir, os.Stdout)
+			_, err = tfAgent.Query(ctx, prompt, outDir, os.Stdout) //nolint:wrapcheck // CLI entry point — error goes directly to cobra
 			return err
 		},
 	}

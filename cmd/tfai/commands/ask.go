@@ -59,7 +59,7 @@ Examples:
 				question = fmt.Sprintf("[workspace: %s]\n\n%s", dir, question)
 			}
 
-			_, err = tfAgent.Query(ctx, question, "", os.Stdout)
+			_, err = tfAgent.Query(ctx, question, "", os.Stdout) //nolint:wrapcheck // CLI entry point — error goes directly to cobra
 			return err
 		},
 	}

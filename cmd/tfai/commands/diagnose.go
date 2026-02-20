@@ -44,7 +44,10 @@ Examples:
 				planContent = string(data)
 			} else {
 				// Check if stdin has data (piped input).
-				stat, _ := os.Stdin.Stat()
+				stat, err := os.Stdin.Stat()
+				if err != nil {
+					return fmt.Errorf("diagnose: failed to stat stdin: %w", err)
+				}
 				if (stat.Mode() & os.ModeCharDevice) == 0 {
 					data, err := io.ReadAll(os.Stdin)
 					if err != nil {
@@ -89,7 +92,7 @@ Examples:
 				return fmt.Errorf("diagnose: provide --plan <file>, pipe plan output via stdin, or specify --dir <workspace>")
 			}
 
-			_, err = tfAgent.Query(ctx, prompt, "", os.Stdout)
+			_, err = tfAgent.Query(ctx, prompt, "", os.Stdout) //nolint:wrapcheck // CLI entry point — error goes directly to cobra
 			return err
 		},
 	}

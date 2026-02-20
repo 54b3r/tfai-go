@@ -85,10 +85,6 @@ fmt: ## Run gofmt and goimports on all Go source files
 	gofmt -w .
 	goimports -w .
 
-.PHONY: lint
-lint: ## Run golangci-lint
-	golangci-lint run ./...
-
 .PHONY: vet
 vet: ## Run go vet
 	$(GO) vet ./...
@@ -111,15 +107,26 @@ test-cover: ## Run tests with coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+# ── Lint ──────────────────────────────────────────────────────────────────────
+.PHONY: lint
+lint: ## Run golangci-lint (requires golangci-lint in PATH)
+	golangci-lint run ./...
+
+.PHONY: lint-fix
+lint-fix: ## Run golangci-lint with auto-fix
+	golangci-lint run --fix ./...
+
 # ── Gate ──────────────────────────────────────────────────────────────────────
 # Full pre-commit verification sequence. Must pass before any commit or PR.
-# Steps: build → vet → test → binary smoke (version + help)
+# Steps: build → vet → lint → test → binary smoke (version + help)
 .PHONY: gate
-gate: ## Run full pre-commit gate (build + vet + test + binary smoke)
+gate: ## Run full pre-commit gate (build + vet + lint + test + binary smoke)
 	@echo "── gate: build ──────────────────────────────────────────"
 	$(GO) build $(GOFLAGS) -trimpath -ldflags="$(LD_FLAGS)" -o bin/$(BINARY) ./cmd/tfai
 	@echo "── gate: vet ────────────────────────────────────────────"
 	$(GO) vet ./...
+	@echo "── gate: lint ───────────────────────────────────────────"
+	golangci-lint run ./...
 	@echo "── gate: test ───────────────────────────────────────────"
 	$(GO) test -race -count=1 ./...
 	@echo "── gate: binary smoke ───────────────────────────────────"

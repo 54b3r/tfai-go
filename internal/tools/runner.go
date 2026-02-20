@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 )
@@ -40,7 +41,8 @@ func (r *ExecRunner) Run(ctx context.Context, ws *WorkspaceContext, subcommand s
 	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		} else {
 			return nil, fmt.Errorf("tools: failed to run terraform %s: %w", subcommand, err)

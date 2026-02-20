@@ -218,7 +218,10 @@ func (p *Pipeline) upsertWithEmbeddings(ctx context.Context, docs []rag.Document
 	// For now we delegate to the store's Upsert. The Qdrant implementation
 	// will need to be updated to accept pre-computed vectors.
 	// This is a known TODO tracked in the VectorStore interface comment.
-	return p.store.Upsert(ctx, docs)
+	if err := p.store.Upsert(ctx, docs); err != nil {
+		return fmt.Errorf("pipeline: upsert failed: %w", err)
+	}
+	return nil
 }
 
 // chunkID generates a deterministic ID for a document chunk based on its
