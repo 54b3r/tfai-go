@@ -62,6 +62,12 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 
 	rl, stopRL := newRateLimiter(cfg.RateLimit, cfg.RateBurst, cfg.Logger)
 
+	if cfg.APIKey == "" {
+		cfg.Logger.Warn("auth disabled: TFAI_API_KEY not set — all API routes are unauthenticated")
+	} else {
+		cfg.Logger.Info("auth enabled", slog.Bool("api_key_set", true))
+	}
+
 	s := &Server{
 		agent:   tfAgent,
 		querier: tfAgent,
@@ -72,15 +78,18 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	// Rate-limited routes — apply token-bucket middleware before each handler.
-	// /api/health and /api/ready are exempt: health must always respond, and
-	// readiness probes from orchestrators must not be throttled.
-	mux.Handle("POST /api/chat", rl.middleware(http.HandlerFunc(s.handleChat)))
-	mux.Handle("GET /api/workspace", rl.middleware(http.HandlerFunc(s.handleWorkspace)))
-	mux.Handle("POST /api/workspace/create", rl.middleware(http.HandlerFunc(s.handleWorkspaceCreate)))
-	mux.Handle("GET /api/file", rl.middleware(http.HandlerFunc(s.handleFileRead)))
-	mux.Handle("PUT /api/file", rl.middleware(http.HandlerFunc(s.handleFileSave)))
-	// Unthrottled routes.
+	// Protected routes: auth → rate-limit → handler.
+	// /api/health and /api/ready are exempt — they must always respond
+	// regardless of auth state (liveness/readiness probes).
+	protected := func(h http.Handler) http.Handler {
+		return authMiddleware(cfg.APIKey, rl.middleware(h))
+	}
+	mux.Handle("POST /api/chat", protected(http.HandlerFunc(s.handleChat)))
+	mux.Handle("GET /api/workspace", protected(http.HandlerFunc(s.handleWorkspace)))
+	mux.Handle("POST /api/workspace/create", protected(http.HandlerFunc(s.handleWorkspaceCreate)))
+	mux.Handle("GET /api/file", protected(http.HandlerFunc(s.handleFileRead)))
+	mux.Handle("PUT /api/file", protected(http.HandlerFunc(s.handleFileSave)))
+	// Unprotected routes.
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/ready", s.handleReady)
 	// Resolve ui/static relative to the binary's working directory.

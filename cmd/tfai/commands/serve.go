@@ -85,6 +85,7 @@ Examples:
 				Port:    port,
 				Logger:  log,
 				Pingers: pingers,
+				APIKey:  os.Getenv("TFAI_API_KEY"),
 			})
 			if err != nil {
 				return fmt.Errorf("serve: failed to create server: %w", err)
