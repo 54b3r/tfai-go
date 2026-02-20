@@ -1,10 +1,51 @@
 package commands
 
 import (
-	"github.com/cloudwego/eino/components/tool"
+	"context"
+	"log/slog"
+	"os"
 
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/qdrant/go-client/qdrant"
+
+	"github.com/54b3r/tfai-go/internal/server"
 	tftools "github.com/54b3r/tfai-go/internal/tools"
 )
+
+// buildPingers constructs the readiness probes for GET /api/ready.
+// The LLM pinger is always included. A Qdrant pinger is added when QDRANT_HOST
+// is set in the environment — it uses a lightweight gRPC client solely for the
+// HealthCheck RPC and does not share state with the ingestion pipeline.
+func buildPingers(ctx context.Context, chatModel model.ToolCallingChatModel, log *slog.Logger) []server.Pinger {
+	providerName := os.Getenv("MODEL_PROVIDER")
+	if providerName == "" {
+		providerName = "ollama"
+	}
+
+	pingers := []server.Pinger{
+		server.NewLLMPinger(chatModel, providerName),
+	}
+
+	qdrantHost := os.Getenv("QDRANT_HOST")
+	if qdrantHost != "" {
+		client, err := qdrant.NewClient(&qdrant.Config{
+			Host: qdrantHost,
+			Port: 6334,
+		})
+		if err != nil {
+			log.Warn("readiness: failed to create qdrant client, skipping probe",
+				slog.String("host", qdrantHost),
+				slog.Any("error", err),
+			)
+		} else {
+			pingers = append(pingers, server.NewQdrantPinger(client))
+		}
+	}
+
+	_ = ctx
+	return pingers
+}
 
 // buildTools constructs the full list of Eino-compatible Terraform tools to
 // register with the agent. If runner is nil, tools that require a live

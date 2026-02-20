@@ -25,6 +25,9 @@ type Config struct {
 	// Logger is the structured logger used by the server and its handlers.
 	// If nil, [logging.New] is used.
 	Logger *slog.Logger
+	// Pingers is the ordered list of dependency probes run by GET /api/ready.
+	// If empty, /api/ready returns 200 with no checks (liveness-only mode).
+	Pingers []Pinger
 }
 
 // querier is the interface handleChat calls to stream a response.
@@ -48,6 +51,8 @@ type Server struct {
 	httpServer *http.Server
 	// log is the structured logger for this server instance.
 	log *slog.Logger
+	// pingers is the ordered list of dependency probes for GET /api/ready.
+	pingers []Pinger
 }
 
 // chatRequest is the JSON body for POST /api/chat.
