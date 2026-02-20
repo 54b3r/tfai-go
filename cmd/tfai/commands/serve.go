@@ -78,10 +78,13 @@ Examples:
 				return fmt.Errorf("serve: failed to initialise agent: %w", err)
 			}
 
+			pingers := buildPingers(ctx, chatModel, log)
+
 			srv, err := server.New(tfAgent, &server.Config{
-				Host:   host,
-				Port:   port,
-				Logger: log,
+				Host:    host,
+				Port:    port,
+				Logger:  log,
+				Pingers: pingers,
 			})
 			if err != nil {
 				return fmt.Errorf("serve: failed to create server: %w", err)

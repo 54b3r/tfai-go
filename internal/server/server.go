@@ -54,11 +54,18 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 		cfg.Logger = logging.New()
 	}
 
-	s := &Server{agent: tfAgent, querier: tfAgent, cfg: cfg, log: cfg.Logger}
+	s := &Server{
+		agent:   tfAgent,
+		querier: tfAgent,
+		cfg:     cfg,
+		log:     cfg.Logger,
+		pingers: cfg.Pingers,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/chat", s.handleChat)
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/ready", s.handleReady)
 	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
 	mux.HandleFunc("POST /api/workspace/create", s.handleWorkspaceCreate)
 	mux.HandleFunc("GET /api/file", s.handleFileRead)

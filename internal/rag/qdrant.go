@@ -182,6 +182,16 @@ func (s *QdrantStore) Delete(ctx context.Context, ids []string) error {
 	return nil
 }
 
+// Ping calls the Qdrant HealthCheck RPC to verify the instance is reachable.
+// Returns nil on success, a descriptive error otherwise.
+func (s *QdrantStore) Ping(ctx context.Context) error {
+	_, err := s.client.HealthCheck(ctx)
+	if err != nil {
+		return fmt.Errorf("qdrant: health check failed: %w", err)
+	}
+	return nil
+}
+
 // Close closes the underlying Qdrant gRPC connection.
 func (s *QdrantStore) Close() error {
 	if err := s.client.Close(); err != nil {
