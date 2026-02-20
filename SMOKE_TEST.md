@@ -11,7 +11,7 @@ Run after any change to `Query()`, `parseAgentOutput()`, `applyFiles()`, the sys
 ## Prerequisites
 
 - Model provider env vars set in your shell (e.g. `MODEL_PROVIDER=azure` + Azure credentials)
-- Server built and running: `make build && ./bin/tfai serve`
+- Server built and running: `make gate && ./bin/tfai serve`
 - A writable temp directory to use as the workspace
 
 ## Steps
@@ -135,3 +135,65 @@ Generate a simple S3 bucket with versioning enabled
 - **No traces appear** — check that `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` are exported (not just set), and that the startup log shows `tracing enabled`
 - **`serve: langfuse tracing disabled`** — env vars not exported to child process; use `export` or inline prefix: `LANGFUSE_PUBLIC_KEY=pk-... ./bin/tfai serve`
 - **Traces appear but are empty** — Langfuse callback registered but flush not called; ensure `defer flush()` is in place in `serve.go`
+
+---
+
+## Part 3 — File Editor & Workspace Security
+
+Run after any change to `handleFileRead`, `handleFileSave`, `handleWorkspaceCreate`, `confineToDir`, or the file editor UI.
+
+### Prerequisites
+
+- Server running: `./bin/tfai serve`
+- A workspace directory with `.tf` files loaded in the UI
+
+### Steps
+
+#### 1. Open a file from the sidebar
+
+1. Load a workspace that contains `.tf` files
+2. Click any file in the sidebar tree
+3. Expected: file content appears in the editor panel on the right
+
+#### 2. Edit and save a file
+
+1. Modify the file content in the editor
+2. Click **Save**
+3. Expected: unsaved indicator disappears; `cat <workspace>/<file>` on disk shows the updated content
+
+#### 3. Discuss file content in chat
+
+1. With a file open in the editor, click **Discuss**
+2. Expected: a chat message is pre-filled referencing the file; agent responds with context-aware advice
+
+#### 4. Workspace scaffolding — existing directory
+
+```bash
+mkdir -p /tmp/tfai-existing
+```
+
+1. In the **Workspace** sidebar, enter `/tmp/tfai-existing` and click **Scaffold starter files**
+2. Expected: `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` appear in the directory and the file tree refreshes
+
+#### 5. Workspace scaffolding — non-existent directory (security check)
+
+1. Enter a path that does not exist, e.g. `/tmp/tfai-does-not-exist`
+2. Click **Scaffold starter files**
+3. Expected: error response — the server returns `400 Bad Request`; no directory is created on disk
+
+```bash
+ls /tmp/tfai-does-not-exist  # must not exist
+```
+
+#### 6. Path traversal rejection (security check)
+
+```bash
+curl -s "http://127.0.0.1:8080/api/file?path=../../etc/passwd&workspaceDir=/tmp/tfai-existing"
+# Expected: 403 Forbidden
+```
+
+### Failure modes
+
+- **File does not save** — check server logs for `server: file save error`; verify `workspaceDir` is sent in the PUT body (DevTools → Network)
+- **Scaffold creates directory** — regression in `handleWorkspaceCreate`; `os.MkdirAll` must not be called on the workspace root
+- **Path traversal not rejected** — `confineToDir` not applied; check `handleFileRead` and `handleFileSave` in `workspace.go`
