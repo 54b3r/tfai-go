@@ -182,6 +182,25 @@ extended with AI agent, Eino framework, and LLM provider conventions.
 
 ---
 
+## Git Workflow
+
+- NEVER commit directly to `main`. All work happens on a feature branch.
+- Branch naming convention: `<type>/<issue-number>-<short-description>`
+  - `feat/20-prometheus-metrics`
+  - `feat/21-conversation-history-sqlite`
+  - `fix/29-llm-chat-deadline`
+  - `chore/10-3-musketeers-container`
+  - `docs/readme-api-reference`
+- Valid types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `ci`
+- The version number belongs in the **tag and commit message — not the branch name**.
+  Branch names encode issue traceability; versions are determined at merge time.
+- Commits must be atomic and focused — one logical change per commit.
+- Use conventional commit message prefixes matching the branch type.
+- Merge to `main` only via a reviewed PR (or explicit user approval in session).
+- Always confirm current branch before starting work: `git branch --show-current`
+
+---
+
 ## Pre-Commit Verification Gate
 
 **NEVER commit code that has not passed all of the following checks in order.**
