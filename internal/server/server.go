@@ -53,6 +53,14 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = logging.New()
 	}
+	if cfg.RateLimit == 0 {
+		cfg.RateLimit = defaultRateLimit
+	}
+	if cfg.RateBurst == 0 {
+		cfg.RateBurst = defaultRateBurst
+	}
+
+	rl, stopRL := newRateLimiter(cfg.RateLimit, cfg.RateBurst, cfg.Logger)
 
 	s := &Server{
 		agent:   tfAgent,
@@ -60,16 +68,21 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 		cfg:     cfg,
 		log:     cfg.Logger,
 		pingers: cfg.Pingers,
+		stopRL:  stopRL,
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/chat", s.handleChat)
+	// Rate-limited routes — apply token-bucket middleware before each handler.
+	// /api/health and /api/ready are exempt: health must always respond, and
+	// readiness probes from orchestrators must not be throttled.
+	mux.Handle("POST /api/chat", rl.middleware(http.HandlerFunc(s.handleChat)))
+	mux.Handle("GET /api/workspace", rl.middleware(http.HandlerFunc(s.handleWorkspace)))
+	mux.Handle("POST /api/workspace/create", rl.middleware(http.HandlerFunc(s.handleWorkspaceCreate)))
+	mux.Handle("GET /api/file", rl.middleware(http.HandlerFunc(s.handleFileRead)))
+	mux.Handle("PUT /api/file", rl.middleware(http.HandlerFunc(s.handleFileSave)))
+	// Unthrottled routes.
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/ready", s.handleReady)
-	mux.HandleFunc("GET /api/workspace", s.handleWorkspace)
-	mux.HandleFunc("POST /api/workspace/create", s.handleWorkspaceCreate)
-	mux.HandleFunc("GET /api/file", s.handleFileRead)
-	mux.HandleFunc("PUT /api/file", s.handleFileSave)
 	// Resolve ui/static relative to the binary's working directory.
 	// Using an absolute path avoids breakage when the binary is run from a
 	// different working directory than the project root.
@@ -110,6 +123,7 @@ func (s *Server) Start(ctx context.Context) error {
 		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("server: graceful shutdown failed: %w", err)
 		}
+		s.stopRL()
 		return nil
 	}
 }
