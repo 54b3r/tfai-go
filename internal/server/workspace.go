@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/54b3r/tfai-go/internal/logging"
 )
 
 // resolveAbsDir cleans and validates that the given path is absolute.
@@ -95,12 +97,12 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		log.Printf("server: workspace walk error: %v", err)
+		logging.FromContext(r.Context()).Error("workspace walk error", slog.Any("error", err))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("server: workspace encode error: %v", err)
+		logging.FromContext(r.Context()).Error("workspace encode error", slog.Any("error", err))
 	}
 }
 
@@ -111,7 +113,7 @@ func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	var body createWorkspaceRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		log.Printf("server: workspace create decode error: %v", err)
+		logging.FromContext(r.Context()).Warn("workspace create decode error", slog.Any("error", err))
 		writeJSONError(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -143,7 +145,10 @@ func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	for _, f := range scaffoldFiles() {
 		path := filepath.Join(dir, f.name)
 		if err := os.WriteFile(path, []byte(f.content), 0o644); err != nil {
-			log.Printf("server: workspace create write %s error: %v", f.name, err)
+			logging.FromContext(r.Context()).Error("workspace scaffold write error",
+				slog.String("file", f.name),
+				slog.Any("error", err),
+			)
 			writeJSONError(w, "failed to create "+f.name+": "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -152,7 +157,7 @@ func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("server: workspace create encode error: %v", err)
+		logging.FromContext(r.Context()).Error("workspace create encode error", slog.Any("error", err))
 	}
 }
 
@@ -186,7 +191,7 @@ func (s *Server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(fileResponse{Path: path, Content: string(content)}); err != nil {
-		log.Printf("server: file read encode error: %v", err)
+		logging.FromContext(r.Context()).Error("file read encode error", slog.Any("error", err))
 	}
 }
 
@@ -214,11 +219,14 @@ func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.WriteFile(path, []byte(body.Content), 0o644); err != nil {
-		log.Printf("server: file save error path=%s: %v", path, err)
+		logging.FromContext(r.Context()).Error("file save error",
+			slog.String("path", path),
+			slog.Any("error", err),
+		)
 		writeJSONError(w, "failed to save file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("server: file saved path=%s", path)
+	logging.FromContext(r.Context()).Info("file saved", slog.String("path", path))
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"ok":true}`)
 }

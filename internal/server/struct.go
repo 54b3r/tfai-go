@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -19,6 +20,9 @@ type Config struct {
 	WriteTimeout time.Duration
 	// ShutdownTimeout is the maximum duration for a graceful shutdown.
 	ShutdownTimeout time.Duration
+	// Logger is the structured logger used by the server and its handlers.
+	// If nil, [logging.New] is used.
+	Logger *slog.Logger
 }
 
 // Server is the HTTP server that wraps the TerraformAgent.
@@ -29,6 +33,8 @@ type Server struct {
 	cfg *Config
 	// httpServer is the underlying net/http server.
 	httpServer *http.Server
+	// log is the structured logger for this server instance.
+	log *slog.Logger
 }
 
 // chatRequest is the JSON body for POST /api/chat.

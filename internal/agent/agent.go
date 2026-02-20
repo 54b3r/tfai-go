@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +21,7 @@ import (
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/54b3r/tfai-go/internal/logging"
 	"github.com/54b3r/tfai-go/internal/rag"
 )
 
@@ -200,7 +201,7 @@ func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage, workspa
 		docs, err := a.retriever.Retrieve(ctx, userMessage, a.ragTopK)
 		if err != nil {
 			// RAG failure is non-fatal — log and continue without context.
-			log.Printf("agent: RAG retrieval failed (continuing without context): %v", err)
+			logging.FromContext(ctx).Warn("RAG retrieval failed, continuing without context", slog.Any("error", err))
 		} else if len(docs) > 0 {
 			ragContext := buildRAGContext(docs)
 			messages = append(messages, schema.SystemMessage(ragContext))
