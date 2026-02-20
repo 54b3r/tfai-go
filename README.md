@@ -95,9 +95,11 @@ tfai-go/
 │   ├── ingestion/              # Doc fetch → chunk → embed → upsert pipeline
 │   └── server/                 # HTTP server + SSE streaming + web UI
 ├── ui/static/                  # Web UI (served by tfai serve)
+├── .golangci.yml               # golangci-lint config (15 linters incl. gosec)
+├── .windsurf/rules/            # Project coding + security/SRE rules
 ├── Dockerfile
 ├── docker-compose.yml          # app + qdrant + langfuse
-└── Makefile                    # 3 Musketeers targets
+└── Makefile                    # build, test, lint, gate targets
 ```
 
 **Key design decisions:**
@@ -131,12 +133,33 @@ make up             # Start qdrant + langfuse in Docker
 make run-docker     # Full stack via docker compose
 make test           # Run unit tests
 make lint           # Run golangci-lint
+make lint-fix       # Run golangci-lint with auto-fix
 make fmt            # Run gofmt + goimports
+make gate           # Full pre-commit gate: build + vet + lint + test + binary smoke
 make ingest-aws     # Ingest core AWS provider docs
 make ingest-azure   # Ingest core Azure provider docs
 make ingest-gcp     # Ingest core GCP provider docs
 make clean          # Remove build artifacts
 ```
+
+---
+
+## Security Model
+
+tfai binds to `127.0.0.1` by default and is designed for **single-user local use**.
+
+| Threat | Mitigation |
+|---|---|
+| Path traversal via LLM output | All file writes confined to declared workspace root |
+| Path traversal via API params | `confineToDir` enforced on all file API calls |
+| Arbitrary directory creation | `POST /api/workspace/create` requires pre-existing directory |
+| Oversized request DoS | `http.MaxBytesReader` (1 MiB) on all POST/PUT handlers |
+| Secret leakage | Credentials only from env vars, never logged or returned |
+| Prompt injection via workspace | Only `.tf` files injected into LLM context |
+
+See `.windsurf/rules/security.md` for the full SRE security policy.
+
+> **Note:** If you expose the server beyond localhost, add authentication, TLS, and rate limiting before doing so.
 
 ---
 
