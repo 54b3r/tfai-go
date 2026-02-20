@@ -173,7 +173,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 // handleHealth handles GET /api/health for liveness checks.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
+		log.Printf("health: encode error: %v", err)
+	}
 }
 
 // sseWriter wraps an http.ResponseWriter to emit Server-Sent Event data frames.
