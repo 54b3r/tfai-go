@@ -150,6 +150,31 @@ knowledge of resource schemas, arguments, and best practices.
 
 ---
 
+### Phase 2.5: YAML Config System (Branch: `feat/yaml-config`)
+
+**Goal:** Replace hardcoded prompt profiles, RAG settings, and per-model
+parameters with a YAML config file that can be changed without recompilation.
+
+**Depends on:** Phase 2 (you need enough moving parts to justify the config
+system — prompt profile selection, RAG topK, ingestion sources, per-provider
+model settings)
+
+**Design spec:** See `docs/ROADMAP.md §2.5` for the full SRE-hardened design
+including validate-then-swap, audit logging, config hash, and immutable field
+detection.
+
+#### What Moves Into YAML
+- Prompt profile selection (which profile for which model)
+- RAG topK and chunk size
+- Ingestion source URLs per provider
+- Per-provider model defaults (API version, reasoning detection overrides)
+
+#### What Stays in Env Vars
+- Secrets (API keys, endpoints) — never in config files
+- Runtime flags (port, host) — CLI flags are the right mechanism
+
+---
+
 ### Phase 3: Evaluation Framework (Branch: `feat/eval-framework`)
 
 **Goal:** Structured, repeatable way to measure generate output quality so
@@ -246,6 +271,8 @@ compact models each get optimized instructions.
 Phase 1 (System Prompt v2)
   ↓ commit + PR + merge + tag
 Phase 2 (RAG Pipeline)
+  ↓ commit + PR + merge + tag
+Phase 2.5 (YAML Config System)
   ↓ commit + PR + merge + tag
 Phase 3 (Eval Framework)
   ↓ commit + PR + merge + tag
