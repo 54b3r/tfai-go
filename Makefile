@@ -3,12 +3,13 @@
 # reproducible builds without requiring local Go/tool installation.
 # Targets that are safe to run natively (lint, fmt) also work locally.
 
-BINARY        := tfai
-IMAGE         := tfai-go
-IMAGE_TAG     ?= local
-DOCKER_COMPOSE := docker compose
-GO            := go
-GOFLAGS       ?=
+BINARY        	:= tfai
+IMAGE         	:= tfai-go
+IMAGE_TAG     	?= local
+DOCKER_COMPOSE 	:= docker compose
+PWD 			:= $(shell pwd)
+GO            	:= go
+GOFLAGS       	?=
 
 # Version info injected into the binary at build time via -ldflags.
 # VERSION defaults to the most recent git tag; falls back to "dev".
@@ -157,7 +158,16 @@ ingest-gcp: build ## Ingest core GCP Terraform provider docs into Qdrant
 	./bin/$(BINARY) ingest --provider gcp \
 	  --url https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_cluster \
 	  --url https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_network
-
+# ── fs ───────────────────────────────────────────────────────────────────────
+# Pattern rule: the % is a wildcard stem that matches anything after "fs/".
+# $* expands to the matched stem at recipe time, so "make fs/my-eks-cluster"
+# sets $* = "my-eks-cluster". This avoids needing a separate variable (e.g.
+# TEST_DIR=...) and keeps the invocation clean: make fs/<name>.
+# Nested paths also work: make fs/azure/aks creates test/azure/aks/.
+.PHONY: test/%
+test/%: ## Create a test output directory under test/. Usage: make test/my-eks-cluster
+	@mkdir -p $(PWD)/test/$*
+	@echo "Created: $(PWD)/test/$*"
 # ── Clean ─────────────────────────────────────────────────────────────────────
 .PHONY: clean
 clean: ## Remove build artifacts

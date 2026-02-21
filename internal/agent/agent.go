@@ -42,7 +42,12 @@ When generating Terraform code:
 - Always use the latest stable provider versions unless told otherwise
 - Apply security best practices by default (encryption at rest/transit, least-privilege IAM, private endpoints)
 - Structure code into logical files: main.tf, variables.tf, outputs.tf, versions.tf
-- Include meaningful comments explaining non-obvious decisions
+- Every resource and module block MUST have a comment above it explaining its purpose
+- Every variable MUST have a description field and a default where sensible
+- Every output MUST have a description field
+- Use blank lines between blocks for readability
+- Group related resources together with a comment header (e.g. # ── Networking ──)
+- Format all HCL consistently: align = signs within blocks, one attribute per line
 - When the user asks to generate or save Terraform code, respond with ONLY a JSON object in this exact shape:
 
 {

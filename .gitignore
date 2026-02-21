@@ -1,5 +1,8 @@
 # Binaries
 bin/
+
+# Generated test output directories
+test/
 *.exe
 *.exe~
 *.dll

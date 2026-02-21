@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	einoark "github.com/cloudwego/eino-ext/components/model/ark"
 	einogemini "github.com/cloudwego/eino-ext/components/model/gemini"
@@ -34,21 +35,60 @@ func newOpenAI(ctx context.Context, cfg *Config) (model.ToolCallingChatModel, er
 	return v, err
 }
 
+// azureReasoningPrefixes lists deployment name prefixes that identify Azure OpenAI
+// reasoning models. These models reject temperature, top_p, presence_penalty,
+// frequency_penalty, and max_tokens parameters.
+// Source: https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models
+// (o-series section, verified 2026-02-20)
+var azureReasoningPrefixes = []string{
+	"o1", "o2", "o3", "o4", "codex",
+}
+
+// isAzureReasoningModel returns true when the deployment name matches a known
+// reasoning model prefix. The check is case-insensitive and prefix-based so
+// that versioned names like "o3-mini" and "o1-preview" are caught automatically.
+func isAzureReasoningModel(deployment string) bool {
+	lower := strings.ToLower(deployment)
+	for _, prefix := range azureReasoningPrefixes {
+		if lower == prefix || strings.HasPrefix(lower, prefix+"-") || strings.HasPrefix(lower, prefix+".") {
+			return true
+		}
+	}
+	return false
+}
+
 // newAzure constructs a ToolCallingChatModel backed by Azure OpenAI Service.
 // Reads AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_DEPLOYMENT.
+//
+// Reasoning-model detection is automatic: deployment names matching known o-series
+// or codex prefixes skip temperature and max_tokens (which those models reject).
+// Set AZURE_OPENAI_REASONING=true/false to override auto-detection explicitly.
 func newAzure(ctx context.Context, cfg *Config) (model.ToolCallingChatModel, error) {
-	return einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{ //nolint:wrapcheck // constructor passthrough
-		Model:       cfg.AzureOpenAI.Deployment,
-		APIKey:      cfg.AzureOpenAI.APIKey,
-		BaseURL:     cfg.AzureOpenAI.Endpoint,
-		ByAzure:     true,
-		APIVersion:  cfg.AzureOpenAI.APIVersion,
-		MaxTokens:   &cfg.Tuning.MaxTokens,
-		Temperature: &cfg.Tuning.Temperature,
+	reasoning := isAzureReasoningModel(cfg.AzureOpenAI.Deployment)
+	if cfg.AzureOpenAI.ReasoningOverride != nil {
+		reasoning = *cfg.AzureOpenAI.ReasoningOverride
+	}
+
+	azureCfg := &einoopenai.ChatModelConfig{ //nolint:wrapcheck // constructor passthrough
+		Model:      cfg.AzureOpenAI.Deployment,
+		APIKey:     cfg.AzureOpenAI.APIKey,
+		BaseURL:    cfg.AzureOpenAI.Endpoint,
+		ByAzure:    true,
+		APIVersion: cfg.AzureOpenAI.APIVersion,
 		// Use the deployment name as-is — the default mapper strips dots/colons
 		// which breaks deployment names like "gpt-4.1".
 		AzureModelMapperFunc: func(model string) string { return model },
-	})
+	}
+	if reasoning {
+		// Reasoning models fix temperature=1, top_p=1, presence_penalty=0,
+		// frequency_penalty=0 and reject max_tokens. Use MaxCompletionTokens
+		// (which includes reasoning tokens) instead.
+		azureCfg.MaxCompletionTokens = &cfg.Tuning.MaxTokens
+	} else {
+		azureCfg.MaxTokens = &cfg.Tuning.MaxTokens
+		azureCfg.Temperature = &cfg.Tuning.Temperature
+	}
+	return einoopenai.NewChatModel(ctx, azureCfg)
 }
 
 // newBedrock constructs a ToolCallingChatModel backed by AWS Bedrock.

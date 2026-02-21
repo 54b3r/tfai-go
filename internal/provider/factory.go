@@ -38,10 +38,11 @@ func NewFromEnv(ctx context.Context) (model.ToolCallingChatModel, error) {
 			Model:  getEnvOrDefault("OPENAI_MODEL", "gpt-4o"),
 		},
 		AzureOpenAI: ProviderAzureOpenAI{
-			APIKey:     os.Getenv("AZURE_OPENAI_API_KEY"),
-			Endpoint:   os.Getenv("AZURE_OPENAI_ENDPOINT"),
-			Deployment: os.Getenv("AZURE_OPENAI_DEPLOYMENT"),
-			APIVersion: getEnvOrDefault("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+			APIKey:            os.Getenv("AZURE_OPENAI_API_KEY"),
+			Endpoint:          os.Getenv("AZURE_OPENAI_ENDPOINT"),
+			Deployment:        os.Getenv("AZURE_OPENAI_DEPLOYMENT"),
+			APIVersion:        getEnvOrDefault("AZURE_OPENAI_API_VERSION", "2025-04-01-preview"),
+			ReasoningOverride: getEnvBoolPtr("AZURE_OPENAI_REASONING"),
 		},
 		Bedrock: ProviderBedrock{
 			AWSRegion: getEnvOrDefault("AWS_REGION", "us-east-1"),
@@ -112,4 +113,17 @@ func getEnvFloat32(key string, fallback float32) float32 {
 		}
 	}
 	return fallback
+}
+
+// getEnvBoolPtr returns a *bool parsed from the named environment variable.
+// Returns nil when the variable is unset or empty (signals: use auto-detection).
+// Returns a pointer to true for "true", pointer to false for "false".
+// Any other non-empty value is treated as false.
+func getEnvBoolPtr(key string) *bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	b := v == "true"
+	return &b
 }
