@@ -98,6 +98,72 @@ func TestApplyFilesModulePath(t *testing.T) {
 	t.Logf("Directory entries: %v", dirEntries)
 }
 
+// TestApplyFilesNoPathDoubling is a regression test for the bug where passing a
+// relative --out directory caused the LLM to echo the path back into the JSON
+// file paths, resulting in doubled nesting (e.g. test/foo/test/foo/main.tf).
+// The fix is to resolve --out to an absolute path before injecting it into the
+// prompt so the LLM receives an absolute path and returns relative file paths.
+func TestApplyFilesNoPathDoubling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		filePath  string // path returned by the LLM in the JSON envelope
+		wantFile  string // expected file location relative to workspace root
+		wantError bool
+	}{
+		{
+			name:     "relative path — no doubling",
+			filePath: "main.tf",
+			wantFile: "main.tf",
+		},
+		{
+			name:     "module subdir — no doubling",
+			filePath: "modules/eks/main.tf",
+			wantFile: "modules/eks/main.tf",
+		},
+		{
+			name:     "llm echoes single dir segment — written under that subdir",
+			filePath: "mydir/main.tf",
+			wantFile: "mydir/main.tf",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			output := &TerraformAgentOutput{
+				Summary: "regression: " + tc.name,
+				Files:   []GeneratedFile{{Path: tc.filePath, Content: "# content"}},
+			}
+
+			err := applyFiles(output, dir)
+			if tc.wantError {
+				if err == nil {
+					t.Errorf("applyFiles() expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("applyFiles() unexpected error: %v", err)
+			}
+
+			want := filepath.Join(dir, tc.wantFile)
+			if _, statErr := os.Stat(want); statErr != nil {
+				t.Errorf("expected file at %s, got: %v", want, statErr)
+			}
+
+			// Verify no extra nesting: the file must not appear under a doubled path.
+			doubled := filepath.Join(dir, filepath.Base(dir), tc.wantFile)
+			if _, statErr := os.Stat(doubled); statErr == nil {
+				t.Errorf("path doubling detected: file exists at doubled path %s", doubled)
+			}
+		})
+	}
+}
+
 func TestApplyFilesPathTraversal(t *testing.T) {
 	t.Parallel()
 

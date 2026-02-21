@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -53,6 +54,12 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("generate: failed to initialise agent: %w", err)
 			}
+
+			absOutDir, err := filepath.Abs(outDir)
+			if err != nil {
+				return fmt.Errorf("generate: failed to resolve output directory: %w", err)
+			}
+			outDir = absOutDir
 
 			prompt := fmt.Sprintf(
 				"Generate production-grade Terraform code for the following and write the files to directory %q.\n\n"+
