@@ -155,7 +155,103 @@ This document consolidates every finding, fix, and feature across all review doc
 | TEST-3 | Fuzz test for `parseAgentOutput()` | REVIEW.md §2.5 | ~30 LOC |
 | TEST-4 | Integration test suite (`//go:build integration`) | REVIEW.md §2.4 | ~300 LOC |
 
-### 2.5 RAG Pipeline — Make It Work
+### 2.5 YAML Config System — Multi-Model Foundation (SRE-Hardened)
+
+Replace env-var-only configuration with a YAML config file that supports multiple named models, per-model system prompts, and hot-reload. This is a **prerequisite** for multi-model support (chat vs code vs embedding) and aligns with the Kubernetes ConfigMap deployment pattern.
+
+**Design validated against SRE standards** — every item below addresses a specific operational concern.
+
+#### Core Implementation
+
+| ID | Item | Effort | Depends On |
+|---|---|---|---|
+| CFG-1 | Config struct hierarchy with `yaml` tags + `version: 1` schema field + secret-field struct tags for redaction | ~160 LOC | — |
+| CFG-2 | YAML loader with `os.ExpandEnv` for `${ENV_VAR}` interpolation + **plaintext secret warning** (scan known secret fields; if value doesn’t start with `${`, log `WARN: field contains literal value — use env var interpolation`) | ~100 LOC | CFG-1 |
+| CFG-3 | Config file resolution chain: `--config` flag → `$TFAI_CONFIG` → `.tfai.yaml` → `~/.tfai/config.yaml` | ~30 LOC | CFG-2 |
+| CFG-4 | **Validate-then-swap hot-reload**: `fsnotify` watcher → parse new YAML → `Validate()` → only if valid, `atomic.Store`. On failure: log error, increment error metric, **keep old config running**. On file deletion: log warning, keep current config. **Immutable field detection**: if `server.host`, `server.port`, or `server.api_key` changed, log `WARN: field changed but requires restart — ignored until next restart` | ~90 LOC | CFG-2 |
+| CFG-5 | Backward-compatible env var fallback (no YAML file → build config from env vars, current behaviour preserved) | ~40 LOC | CFG-2 |
+| CFG-6 | Refactor `provider.New` to accept a model config struct instead of reading env directly | ~50 LOC | CFG-1 |
+
+#### SRE Observability for Config
+
+| ID | Item | SRE Principle | Effort | Depends On |
+|---|---|---|---|---|
+| CFG-O1 | **Config reload metrics**: `tfai_config_reloads_total{outcome=success\|error}` + `tfai_config_last_reload_timestamp_seconds` | Observability | ~15 LOC | CFG-4 |
+| CFG-O2 | **Config hash**: SHA-256 of resolved config (secrets redacted). Logged on startup and every reload. Exposed in `/api/health` as `config_hash` field | Incident debugging | ~10 LOC | CFG-1 |
+| CFG-O3 | **Structured audit log on every reload**: `slog.Info("config reloaded", "config_hash", hash, "changed_sections", [...])` | Audit trail | ~10 LOC | CFG-4 |
+
+#### Tests
+
+| ID | Item | Effort | Depends On |
+|---|---|---|---|
+| CFG-T1 | YAML parsing, env interpolation, schema version validation | ~100 LOC | CFG-1–2 |
+| CFG-T2 | Hot-reload: valid reload swaps config, invalid reload keeps old config | ~50 LOC | CFG-4 |
+| CFG-T3 | Plaintext secret warning fires on literal values | ~30 LOC | CFG-2 |
+| CFG-T4 | Immutable field change logs warning but doesn’t apply | ~30 LOC | CFG-4 |
+| CFG-T5 | File deletion keeps running config | ~20 LOC | CFG-4 |
+| CFG-T6 | Backward compat: no YAML file → env vars work unchanged | ~20 LOC | CFG-5 |
+
+**Total: ~745 LOC** (was ~610 before SRE hardening; +135 LOC for operational safety)
+
+**Hot-reload scope:**
+- ✅ System prompts, temperature, max_tokens, log level
+- ⚠️ Model provider/name (recreates client on next request, logged)
+- ❌ Server host/port, API key (require restart — **warned on reload if changed**)
+
+**SRE guarantees:**
+- Invalid config reload → old config stays active, error metric incremented, structured error log
+- Config file deleted → old config stays active, warning logged
+- Plaintext secrets in YAML → startup/reload warning (not blocked, but flagged)
+- Every reload → audit log with config hash + changed sections
+- Config hash available in `/api/health` for incident correlation
+- Schema version checked on load — unsupported version returns clear error
+
+**Config file example:** `.tfai.yaml`
+```yaml
+version: 1
+
+models:
+  chat:
+    provider: ollama
+    model: llama3
+    temperature: 0.3
+    system_prompt: |
+      You are a Terraform expert...
+  code:
+    provider: openai
+    model: gpt-4o
+    api_key: ${OPENAI_API_KEY}
+    temperature: 0.1
+  embedding:
+    provider: ollama
+    model: nomic-embed-text
+
+server:
+  port: 8080
+  api_key: ${TFAI_API_KEY}
+
+history:
+  path: ~/.tfai/history.db
+
+rag:
+  qdrant_host: localhost
+  qdrant_port: 6334
+
+observability:
+  log_level: info
+  log_format: json
+```
+
+### 2.6 Multi-Model Support
+
+| ID | Item | Source | Effort | Depends On |
+|---|---|---|---|---|
+| MM-1 | Wire `models.chat` config to serve/ask commands | New | ~30 LOC | CFG-6 |
+| MM-2 | Wire `models.code` config to generate command (separate model for code gen) | New | ~30 LOC | CFG-6 |
+| MM-3 | Wire `models.embedding` config to ingest/RAG pipeline | New | ~30 LOC | CFG-6, RAG-2 |
+| MM-4 | Per-model system prompt injection in `agent.buildMessages()` | New | ~20 LOC | CFG-1 |
+
+### 2.7 RAG Pipeline — Make It Work
 
 | ID | Item | Source | Effort | Depends On |
 |---|---|---|---|---|
@@ -165,7 +261,7 @@ This document consolidates every finding, fix, and feature across all review doc
 | RAG-4 | Wire `ingest` CLI end-to-end (fetch → chunk → embed → upsert) | REVIEW.md §3.3 | ~100 LOC | RAG-3 |
 | RAG-5 | Semantic chunking for HCL/Terraform documentation | REVIEW.md §3.5 | ~200 LOC | RAG-4 |
 
-### 2.6 MCP Spike
+### 2.8 MCP Spike
 
 | ID | Item | Source | Effort |
 |---|---|---|---|
@@ -179,11 +275,13 @@ Branch 1: fix/observability-logging       → 2.2 items (SF-1, SF-5, LOG-3, LOG-
 Branch 2: fix/resilience-resource-mgmt    → 2.3 items (SF-2–6, NH-1–2, SCALE-1)
 Branch 3: fix/security-hardening          → 2.1 items (SEC-2–4, REVIEW-1.5–1.7)
 Branch 4: feat/test-coverage              → 2.4 items (TEST-1–4)
-Branch 5: feat/rag-pipeline               → 2.5 items (RAG-1–5, sequential)
-Branch 6: spike/mcp-server                → 2.6 items (MCP-1, then MCP-2 if viable)
+Branch 5: feat/yaml-config                → 2.5 items (CFG-1–7, foundation for everything below)
+Branch 6: feat/multi-model                → 2.6 items (MM-1–4, depends on Branch 5)
+Branch 7: feat/rag-pipeline               → 2.7 items (RAG-1–5, sequential, uses MM-3 for embedding)
+Branch 8: spike/mcp-server                → 2.8 items (MCP-1, then MCP-2 if viable)
 ```
 
-**RAG and MCP are the product decisions.** Everything else is hardening. Do branches 1–3 first (operational confidence), then branch 5 or 6 depending on whether RAG or MCP is the higher-value path. Tests (branch 4) can be done incrementally alongside other work.
+**Hardening first (branches 1–4), then config system (branch 5) unlocks multi-model (branch 6) and RAG (branch 7).** MCP spike (branch 8) is independent and can run in parallel with any branch. Tests (branch 4) can be done incrementally alongside other work.
 
 ---
 
@@ -277,6 +375,8 @@ The following items don't yet have GitHub issues. Create them when starting the 
 - [ ] Pre-release hardening: dead metrics, body limits, workspace caps, request_id, CI
 
 ### For Tier 2 (create when starting)
+- [ ] YAML config system with hot-reload and multi-model support
+- [ ] Multi-model: separate chat, code, and embedding model configs
 - [ ] pprof debug port
 - [ ] Terraform command execution timeout
 - [ ] LLMPinger lightweight replacement
@@ -304,3 +404,4 @@ The following items don't yet have GitHub issues. Create them when starting the 
 | 2026-02-20 | Defer UI migration (#12) | MCP spike may eliminate the need for a custom UI entirely. | STRATEGIC_ANALYSIS.md |
 | 2026-02-20 | Defer reranking (#35) | Basic RAG doesn't work yet. Fix fundamentals first. | STRATEGIC_ANALYSIS.md |
 | 2026-02-20 | Finish the product (Option A) | Ship v1.0, get real feedback, then decide on template repo or MCP. | STRATEGIC_ANALYSIS.md |
+| 2026-02-20 | YAML config system before multi-model | Env vars don't scale past single model. YAML aligns with k8s ConfigMap pattern. Design for 3 concrete models (chat, code, embedding) — don't build a plugin registry. | Architecture discussion |
