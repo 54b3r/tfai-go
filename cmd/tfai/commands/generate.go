@@ -55,7 +55,15 @@ Examples:
 			}
 
 			prompt := fmt.Sprintf(
-				"Generate Terraform code for the following and write the files to directory %q:\n\n%s",
+				"Generate production-grade Terraform code for the following and write the files to directory %q.\n\n"+
+					"Requirements:\n"+
+					"- Every resource and module block must have a comment above it explaining its purpose\n"+
+					"- Every variable must have a description field and a sensible default where applicable\n"+
+					"- Every output must have a description field\n"+
+					"- Group related resources with section comment headers (e.g. # ── Networking ──)\n"+
+					"- Use blank lines between blocks for readability\n"+
+					"- Apply security best practices by default (encryption, least-privilege IAM, private endpoints)\n\n"+
+					"Description: %s",
 				outDir, args[0],
 			)
 

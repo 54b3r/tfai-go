@@ -79,6 +79,10 @@ type ProviderAzureOpenAI struct {
 	Deployment string
 	// APIVersion is the Azure OpenAI REST API version (AZURE_OPENAI_API_VERSION).
 	APIVersion string
+	// ReasoningOverride explicitly forces or disables reasoning-model mode,
+	// overriding auto-detection. nil = auto-detect from deployment name.
+	// Set AZURE_OPENAI_REASONING=true to force on, =false to force off.
+	ReasoningOverride *bool
 }
 
 // ProviderBedrock holds configuration for AWS Bedrock.

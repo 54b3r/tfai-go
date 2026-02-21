@@ -158,3 +158,45 @@ func TestConfigValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestIsAzureReasoningModel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		deployment string
+		want       bool
+	}{
+		// known o-series — should be detected
+		{"o1", true},
+		{"o1-preview", true},
+		{"o1-mini", true},
+		{"o3", true},
+		{"o3-mini", true},
+		{"o3-pro", true},
+		{"o4-mini", true},
+		{"O1-PREVIEW", true}, // case-insensitive
+		{"O3-Mini", true},    // case-insensitive
+		// codex-class — should be detected
+		{"codex-mini", true},
+		{"codex", true},
+		{"gpt-5.2-codex", false}, // "codex" not at start — not matched by prefix rule
+		// standard models — should NOT be detected
+		{"gpt-4o", false},
+		{"gpt-4o-mini", false},
+		{"gpt-4", false},
+		{"gpt-4.1", false},
+		{"gpt-35-turbo", false},
+		{"my-custom-deployment", false},
+		{"", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.deployment, func(t *testing.T) {
+			t.Parallel()
+			got := isAzureReasoningModel(tc.deployment)
+			if got != tc.want {
+				t.Errorf("isAzureReasoningModel(%q) = %v, want %v", tc.deployment, got, tc.want)
+			}
+		})
+	}
+}
