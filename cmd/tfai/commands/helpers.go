@@ -9,22 +9,20 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/qdrant/go-client/qdrant"
 
+	"github.com/54b3r/tfai-go/internal/provider"
 	"github.com/54b3r/tfai-go/internal/server"
 	tftools "github.com/54b3r/tfai-go/internal/tools"
 )
 
 // buildPingers constructs the readiness probes for GET /api/ready.
-// The LLM pinger is always included. A Qdrant pinger is added when QDRANT_HOST
-// is set in the environment — it uses a lightweight gRPC client solely for the
-// HealthCheck RPC and does not share state with the ingestion pipeline.
-func buildPingers(ctx context.Context, chatModel model.ToolCallingChatModel, log *slog.Logger) []server.Pinger {
-	providerName := os.Getenv("MODEL_PROVIDER")
-	if providerName == "" {
-		providerName = "ollama"
-	}
+// The LLM pinger is always included and uses a zero-cost HTTP health check
+// when the provider supports it, falling back to a Generate call otherwise.
+// A Qdrant pinger is added when QDRANT_HOST is set in the environment.
+func buildPingers(_ context.Context, chatModel model.ToolCallingChatModel, cfg *provider.Config, log *slog.Logger) []server.Pinger {
+	hc := provider.NewHealthCheckConfig(cfg.Backend, cfg)
 
 	pingers := []server.Pinger{
-		server.NewLLMPinger(chatModel, providerName),
+		server.NewLLMPinger(chatModel, hc, string(cfg.Backend)),
 	}
 
 	qdrantHost := os.Getenv("QDRANT_HOST")
@@ -43,7 +41,6 @@ func buildPingers(ctx context.Context, chatModel model.ToolCallingChatModel, log
 		}
 	}
 
-	_ = ctx
 	return pingers
 }
 

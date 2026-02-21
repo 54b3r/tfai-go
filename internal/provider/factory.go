@@ -27,7 +27,16 @@ import (
 //
 //	Shared:  MODEL_MAX_TOKENS (default: 4096), MODEL_TEMPERATURE (default: 0.2)
 func NewFromEnv(ctx context.Context) (model.ToolCallingChatModel, error) {
-	cfg := &Config{
+	cfg := ConfigFromEnv()
+	return New(ctx, cfg)
+}
+
+// ConfigFromEnv builds a provider Config from environment variables without
+// constructing a model. This is useful when callers need the config for
+// ancillary purposes (e.g. building a HealthCheckConfig) in addition to
+// creating a ChatModel.
+func ConfigFromEnv() *Config {
+	return &Config{
 		Backend: Backend(getEnvOrDefault("MODEL_PROVIDER", string(BackendOllama))),
 		Ollama: ProviderOllama{
 			Host:  getEnvOrDefault("OLLAMA_HOST", "http://localhost:11434"),
@@ -57,8 +66,6 @@ func NewFromEnv(ctx context.Context) (model.ToolCallingChatModel, error) {
 			Temperature: getEnvFloat32("MODEL_TEMPERATURE", 0.2),
 		},
 	}
-
-	return New(ctx, cfg)
 }
 
 // New constructs a ChatModel from an explicit Config, delegating to the

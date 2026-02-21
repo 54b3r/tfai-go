@@ -6,6 +6,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/cloudwego/eino/components/model"
 )
@@ -25,6 +27,60 @@ const (
 	// BackendGemini selects Google Gemini via Vertex AI or AI Studio.
 	BackendGemini Backend = "gemini"
 )
+
+type HealthCheckConfig interface {
+	GetURL() string
+	GetProviderType() Backend
+	HealthCheck(ctx context.Context) error
+}
+
+// Concrete type that satisfies HealthCheckConfig
+type healthCheckCfg struct {
+	url          string
+	providerType Backend
+	apiKey       string
+	check        func(ctx context.Context, url string, apiKey string) error
+}
+
+func (h *healthCheckCfg) GetURL() string                        { return h.url }
+func (h *healthCheckCfg) GetProviderType() Backend              { return h.providerType }
+func (h *healthCheckCfg) HealthCheck(ctx context.Context) error { return h.check(ctx, h.url, h.apiKey) }
+
+// doHealthGet sends a GET request and returns nil on 2xx, error otherwise.
+func doHealthGet(ctx context.Context, url string, headers map[string]string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("health check: %w", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("health check: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("health check: HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// No auth — just GET and check 2xx
+func httpGetCheck(ctx context.Context, url, _ string) error {
+	return doHealthGet(ctx, url, nil)
+}
+
+// Bearer token auth
+func bearerAuthCheck(ctx context.Context, url, apiKey string) error {
+	return doHealthGet(ctx, url, map[string]string{"Authorization": "Bearer " + apiKey})
+}
+
+// Azure api-key header
+func azureAPIKeyCheck(ctx context.Context, url, apiKey string) error {
+	return doHealthGet(ctx, url, map[string]string{"api-key": apiKey})
+}
 
 // Config holds all provider-level configuration resolved from environment
 // variables. Each provider uses its own native credential env vars rather
@@ -59,6 +115,49 @@ type ProviderOllama struct {
 	Host string
 	// Model is the Ollama model name to use (OLLAMA_MODEL).
 	Model string
+}
+
+// NewHealthCheckConfig constructs a zero-cost HealthCheckConfig for the given
+// backend. The returned config encapsulates the provider's metadata endpoint
+// URL, credentials, and HTTP check function so callers only need to call
+// HealthCheck(ctx).
+func NewHealthCheckConfig(b Backend, cfg *Config) HealthCheckConfig {
+	switch b {
+	case BackendOllama:
+		return &healthCheckCfg{
+			url:          cfg.Ollama.Host + "/api/tags",
+			providerType: b,
+			check:        httpGetCheck,
+		}
+	case BackendOpenAI:
+		return &healthCheckCfg{
+			url:          "https://api.openai.com/v1/models",
+			providerType: b,
+			apiKey:       cfg.OpenAI.APIKey,
+			check:        bearerAuthCheck,
+		}
+	case BackendAzure:
+		return &healthCheckCfg{
+			url:          cfg.AzureOpenAI.Endpoint + "/openai/models?api-version=" + cfg.AzureOpenAI.APIVersion,
+			providerType: b,
+			apiKey:       cfg.AzureOpenAI.APIKey,
+			check:        azureAPIKeyCheck,
+		}
+	case BackendBedrock:
+		return &healthCheckCfg{
+			url:          "https://bedrock-runtime." + cfg.Bedrock.AWSRegion + ".amazonaws.com",
+			providerType: b,
+			check:        httpGetCheck,
+		}
+	case BackendGemini:
+		return &healthCheckCfg{
+			url:          "https://generativelanguage.googleapis.com/v1beta/models?key=" + cfg.Gemini.APIKey,
+			providerType: b,
+			check:        httpGetCheck,
+		}
+	default:
+		return nil
+	}
 }
 
 // ProviderOpenAI holds configuration for the OpenAI API.

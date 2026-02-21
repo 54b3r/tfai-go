@@ -139,14 +139,10 @@ func (p *Pipeline) Ingest(ctx context.Context, sources []Source, progress func(m
 					"chunk_index":   fmt.Sprintf("%d", i),
 				},
 			}
-			// Attach the embedding directly to the document for upsert.
-			// The QdrantStore.Upsert implementation reads embeddings from a
-			// parallel slice; we store them in a side channel via context.
-			_ = embeddings[i] // embeddings used in upsertWithEmbeddings below
 			docs = append(docs, doc)
 		}
 
-		if err := p.upsertWithEmbeddings(ctx, docs, embeddings); err != nil {
+		if err := p.store.Upsert(ctx, docs, embeddings); err != nil {
 			return fmt.Errorf("ingestion: upsert failed for %s: %w", src.URL, err)
 		}
 
@@ -206,22 +202,6 @@ func (p *Pipeline) chunk(text string) []string {
 	}
 
 	return chunks
-}
-
-// upsertWithEmbeddings stores documents and their pre-computed embeddings.
-// The QdrantStore expects embeddings to be set on the point vectors; this
-// method bridges the Document model with the Qdrant upsert API by attaching
-// embeddings before calling store.Upsert.
-// TODO: Extend the VectorStore interface to accept embeddings directly,
-// removing the need for this bridge method.
-func (p *Pipeline) upsertWithEmbeddings(ctx context.Context, docs []rag.Document, embeddings [][]float32) error {
-	// For now we delegate to the store's Upsert. The Qdrant implementation
-	// will need to be updated to accept pre-computed vectors.
-	// This is a known TODO tracked in the VectorStore interface comment.
-	if err := p.store.Upsert(ctx, docs); err != nil {
-		return fmt.Errorf("pipeline: upsert failed: %w", err)
-	}
-	return nil
 }
 
 // chunkID generates a deterministic ID for a document chunk based on its
