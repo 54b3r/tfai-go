@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -38,7 +39,7 @@ func authMiddleware(apiKey string, next http.Handler) http.Handler {
 			return
 		}
 
-		if token != apiKey {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(apiKey)) != 1 {
 			log.Warn("auth: invalid token",
 				slog.String("path", r.URL.Path),
 				slog.Bool("token_present", true),

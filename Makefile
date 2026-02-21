@@ -41,9 +41,10 @@ deps: ## Download and tidy Go module dependencies
 	$(GO) mod tidy
 
 .PHONY: install-tools
-install-tools: ## Install local development tools (golangci-lint, goimports)
+install-tools: ## Install local development tools (golangci-lint, goimports, govulncheck)
 	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	$(GO) install golang.org/x/tools/cmd/goimports@latest
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 .PHONY: build
@@ -118,15 +119,17 @@ lint-fix: ## Run golangci-lint with auto-fix
 
 # ── Gate ──────────────────────────────────────────────────────────────────────
 # Full pre-commit verification sequence. Must pass before any commit or PR.
-# Steps: build → vet → lint → test → binary smoke (version + help)
+# Steps: build → vet → lint → vulncheck → test → binary smoke (version + help)
 .PHONY: gate
-gate: ## Run full pre-commit gate (build + vet + lint + test + binary smoke)
+gate: ## Run full pre-commit gate (build + vet + lint + vulncheck + test + binary smoke)
 	@echo "── gate: build ──────────────────────────────────────────"
 	$(GO) build $(GOFLAGS) -trimpath -ldflags="$(LD_FLAGS)" -o bin/$(BINARY) ./cmd/tfai
 	@echo "── gate: vet ────────────────────────────────────────────"
 	$(GO) vet ./...
 	@echo "── gate: lint ───────────────────────────────────────────"
 	golangci-lint run ./...
+	@echo "── gate: vulncheck ──────────────────────────────────────"
+	govulncheck ./...
 	@echo "── gate: test ───────────────────────────────────────────"
 	$(GO) test -race -count=1 ./...
 	@echo "── gate: binary smoke ───────────────────────────────────"
