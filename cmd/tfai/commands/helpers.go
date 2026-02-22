@@ -67,7 +67,7 @@ func buildRetriever(ctx context.Context, log *slog.Logger) (rag.Retriever, func(
 
 	qdrantPort := getEnvInt("QDRANT_PORT", 6334)
 	collection := getEnvOrDefault("QDRANT_COLLECTION", "tfai-docs")
-	vectorSize := uint64(getEnvInt("EMBEDDING_DIMENSIONS", 1536)) //nolint:gosec // dimensions are bounded
+	vectorSize := uint64(embedder.DefaultDimensions(getEnvOrDefault("EMBEDDING_PROVIDER", getEnvOrDefault("MODEL_PROVIDER", "ollama")))) //nolint:gosec // dimensions are bounded
 
 	qstore, err := rag.NewQdrantStore(ctx, &rag.QdrantConfig{
 		Host:       qdrantHost,

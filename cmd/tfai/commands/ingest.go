@@ -55,7 +55,8 @@ Examples:
 			qdrantHost := getEnvOrDefault("QDRANT_HOST", "localhost")
 			qdrantPort := getEnvInt("QDRANT_PORT", 6334)
 			collection := getEnvOrDefault("QDRANT_COLLECTION", "tfai-docs")
-			vectorSize := uint64(getEnvInt("EMBEDDING_DIMENSIONS", 1536)) //nolint:gosec // dimensions are bounded
+			embBackend := getEnvOrDefault("EMBEDDING_PROVIDER", getEnvOrDefault("MODEL_PROVIDER", "ollama"))
+			vectorSize := uint64(embedder.DefaultDimensions(embBackend)) //nolint:gosec // dimensions are bounded
 
 			store, err := rag.NewQdrantStore(ctx, &rag.QdrantConfig{
 				Host:       qdrantHost,

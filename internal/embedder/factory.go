@@ -14,8 +14,29 @@ const (
 	defaultOpenAIModel  = "text-embedding-3-small"
 	defaultBedrockModel = "amazon.titan-embed-text-v2"
 	defaultGeminiModel  = "text-embedding-004"
-	defaultDimensions   = 1536
+
+	// defaultOllamaDimensions is the output dimension of nomic-embed-text.
+	// Other Ollama models may differ — override with EMBEDDING_DIMENSIONS.
+	defaultOllamaDimensions = 768
+	// defaultOpenAIDimensions is the output dimension of text-embedding-3-small.
+	defaultOpenAIDimensions = 1536
 )
+
+// DefaultDimensions returns the correct default embedding vector size for the
+// given backend name. Callers that need to pre-configure a vector store (e.g.
+// Qdrant collection creation) should use this rather than hardcoding a value.
+// EMBEDDING_DIMENSIONS always takes precedence when set.
+func DefaultDimensions(backend string) int {
+	if v := getEnvInt("EMBEDDING_DIMENSIONS", 0); v > 0 {
+		return v
+	}
+	switch backend {
+	case "ollama":
+		return defaultOllamaDimensions
+	default:
+		return defaultOpenAIDimensions
+	}
+}
 
 // NewFromEnv constructs a rag.Embedder using cascading defaults that inherit
 // from the chat provider configuration when embedding-specific overrides are
@@ -28,16 +49,13 @@ const (
 //  3. EMBEDDING_MODEL — overrides the default model for the resolved backend
 //  4. EMBEDDING_API_KEY — overrides the inherited API key
 //  5. EMBEDDING_ENDPOINT — overrides the inherited endpoint
-//  6. EMBEDDING_DIMENSIONS — overrides the default dimensions (default: 1536)
+//  6. EMBEDDING_DIMENSIONS — overrides the default dimensions (ollama: 768, openai/azure: 1536)
 func NewFromEnv() (rag.Embedder, error) {
 	// 1. Resolve provider — fall back to MODEL_PROVIDER, then "ollama".
 	backend := getEnv("EMBEDDING_PROVIDER")
 	if backend == "" {
 		backend = getEnvOrDefault("MODEL_PROVIDER", "ollama")
 	}
-
-	// 6. Shared override: dimensions.
-	dims := getEnvInt("EMBEDDING_DIMENSIONS", defaultDimensions)
 
 	switch backend {
 	case "ollama":
@@ -52,6 +70,7 @@ func NewFromEnv() (rag.Embedder, error) {
 		}), nil
 
 	case "openai":
+		dims := getEnvInt("EMBEDDING_DIMENSIONS", defaultOpenAIDimensions)
 		apiKey := getEnv("EMBEDDING_API_KEY")
 		if apiKey == "" {
 			apiKey = getEnv("OPENAI_API_KEY")
@@ -72,6 +91,7 @@ func NewFromEnv() (rag.Embedder, error) {
 		}), nil
 
 	case "azure":
+		dims := getEnvInt("EMBEDDING_DIMENSIONS", defaultOpenAIDimensions)
 		apiKey := getEnv("EMBEDDING_API_KEY")
 		if apiKey == "" {
 			apiKey = getEnv("AZURE_OPENAI_API_KEY")
