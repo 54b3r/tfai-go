@@ -121,12 +121,13 @@ func (e *OpenAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 
 	var result openaiEmbedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("openai embedder: decode response: %w", err)
+		return nil, fmt.Errorf("openai embedder: decode response (HTTP %d): %w", resp.StatusCode, err)
 	}
 
+	// Check status after decode so we can surface the API error message.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg := fmt.Sprintf("HTTP %d", resp.StatusCode)
-		if result.Error != nil {
+		if result.Error != nil && result.Error.Message != "" {
 			msg = result.Error.Message
 		}
 		return nil, fmt.Errorf("openai embedder: %s", msg)

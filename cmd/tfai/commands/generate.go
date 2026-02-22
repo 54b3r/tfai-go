@@ -48,7 +48,8 @@ Examples:
 
 			agentTools := buildTools(runner)
 
-			retriever := buildRetriever(ctx, slog.Default())
+			retriever, closeRetriever := buildRetriever(ctx, slog.Default())
+			defer closeRetriever()
 
 			tfAgent, err := agent.New(ctx, &agent.Config{
 				ChatModel: chatModel,

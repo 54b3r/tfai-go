@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -118,8 +119,7 @@ func (p *Pipeline) Ingest(ctx context.Context, sources []Source, progress func(m
 		chunks := p.chunk(content)
 		progress(fmt.Sprintf("chunked %s into %d chunks", src.URL, len(chunks)))
 
-		texts := make([]string, len(chunks))
-		copy(texts, chunks)
+		texts := chunks
 
 		embeddings, err := p.embedder.Embed(ctx, texts)
 		if err != nil {
@@ -152,6 +152,20 @@ func (p *Pipeline) Ingest(ctx context.Context, sources []Source, progress func(m
 	return nil
 }
 
+// reHTMLTag matches any HTML tag.
+var reHTMLTag = regexp.MustCompile(`<[^>]+>`)
+
+// reWhitespace collapses runs of whitespace (including newlines) to a single space.
+var reWhitespace = regexp.MustCompile(`\s{2,}`)
+
+// stripHTML removes HTML tags and collapses whitespace from a raw HTML string,
+// returning plain text suitable for chunking and embedding.
+func stripHTML(raw string) string {
+	text := reHTMLTag.ReplaceAllString(raw, " ")
+	text = reWhitespace.ReplaceAllString(text, " ")
+	return strings.TrimSpace(text)
+}
+
 // fetch retrieves the raw text content of a URL.
 func (p *Pipeline) fetch(ctx context.Context, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -176,7 +190,12 @@ func (p *Pipeline) fetch(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("reading body: %w", err)
 	}
 
-	return string(body), nil
+	text := string(body)
+	// Strip HTML tags if the response looks like an HTML page.
+	if strings.Contains(text, "<html") || strings.Contains(text, "<!DOCTYPE") {
+		text = stripHTML(text)
+	}
+	return text, nil
 }
 
 // chunk splits text into overlapping chunks of cfg.ChunkSize characters.
@@ -204,9 +223,14 @@ func (p *Pipeline) chunk(text string) []string {
 	return chunks
 }
 
-// chunkID generates a deterministic ID for a document chunk based on its
-// source URL and chunk index.
+// chunkID generates a deterministic UUID-format ID for a document chunk based
+// on its source URL and chunk index. The format (8-4-4-4-12 hex) satisfies
+// qdrant.NewIDUUID without requiring the google/uuid dependency.
 func chunkID(sourceURL string, index int) string {
 	h := sha256.Sum256([]byte(fmt.Sprintf("%s#%d", sourceURL, index)))
-	return fmt.Sprintf("%x", h[:16])
+	// Force version 5 and variant bits so the result is a valid UUID.
+	h[6] = (h[6] & 0x0f) | 0x50
+	h[8] = (h[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
 }

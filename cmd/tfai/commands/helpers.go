@@ -48,25 +48,28 @@ func buildPingers(_ context.Context, chatModel model.ToolCallingChatModel, cfg *
 }
 
 // buildRetriever constructs a rag.Retriever when QDRANT_HOST is set in the
-// environment. Returns nil when Qdrant is not configured — the agent treats a
-// nil retriever as "RAG disabled" and continues without context injection.
-func buildRetriever(ctx context.Context, log *slog.Logger) rag.Retriever {
+// environment. Returns (nil, noop) when Qdrant is not configured — the agent
+// treats a nil retriever as "RAG disabled". The returned closer must be called
+// (e.g. via defer) to release the underlying gRPC connection.
+func buildRetriever(ctx context.Context, log *slog.Logger) (rag.Retriever, func()) {
+	noop := func() {}
+
 	qdrantHost := os.Getenv("QDRANT_HOST")
 	if qdrantHost == "" {
-		return nil
+		return nil, noop
 	}
 
 	emb, err := embedder.NewFromEnv()
 	if err != nil {
 		log.Warn("rag: failed to initialise embedder, RAG disabled", slog.Any("error", err))
-		return nil
+		return nil, noop
 	}
 
 	qdrantPort := getEnvInt("QDRANT_PORT", 6334)
 	collection := getEnvOrDefault("QDRANT_COLLECTION", "tfai-docs")
 	vectorSize := uint64(getEnvInt("EMBEDDING_DIMENSIONS", 1536)) //nolint:gosec // dimensions are bounded
 
-	store, err := rag.NewQdrantStore(ctx, &rag.QdrantConfig{
+	qstore, err := rag.NewQdrantStore(ctx, &rag.QdrantConfig{
 		Host:       qdrantHost,
 		Port:       qdrantPort,
 		Collection: collection,
@@ -79,14 +82,14 @@ func buildRetriever(ctx context.Context, log *slog.Logger) rag.Retriever {
 			slog.String("host", qdrantHost),
 			slog.Any("error", err),
 		)
-		return nil
+		return nil, noop
 	}
 
-	retriever, err := rag.NewRetriever(emb, store, getEnvInt("RAG_TOP_K", 5))
+	retriever, err := rag.NewRetriever(emb, qstore, getEnvInt("RAG_TOP_K", 5))
 	if err != nil {
 		log.Warn("rag: failed to create retriever, RAG disabled", slog.Any("error", err))
-		_ = store.Close()
-		return nil
+		_ = qstore.Close()
+		return nil, noop
 	}
 
 	log.Info("rag: retriever ready",
@@ -94,7 +97,7 @@ func buildRetriever(ctx context.Context, log *slog.Logger) rag.Retriever {
 		slog.Int("port", qdrantPort),
 		slog.String("collection", collection),
 	)
-	return retriever
+	return retriever, func() { _ = qstore.Close() }
 }
 
 // buildTools constructs the full list of Eino-compatible Terraform tools to

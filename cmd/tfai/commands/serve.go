@@ -97,7 +97,8 @@ Examples:
 				log.Info("history: disabled via TFAI_HISTORY_DB=disabled")
 			}
 
-			retriever := buildRetriever(ctx, log)
+			retriever, closeRetriever := buildRetriever(ctx, log)
+			defer closeRetriever()
 
 			tfAgent, err := agent.New(ctx, &agent.Config{
 				ChatModel: chatModel,
