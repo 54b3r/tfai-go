@@ -57,11 +57,12 @@ Examples:
 				log.Info("langfuse tracing disabled", slog.String("reason", "LANGFUSE_PUBLIC_KEY not set"))
 			}
 
-			chatModel, err := provider.NewFromEnv(ctx)
+			providerCfg := provider.ConfigFromEnv()
+			chatModel, err := provider.New(ctx, providerCfg)
 			if err != nil {
 				return fmt.Errorf("serve: failed to initialise model provider: %w", err)
 			}
-			log.Info("provider initialised", slog.String("provider", os.Getenv("MODEL_PROVIDER")))
+			log.Info("provider initialised", slog.String("provider", string(providerCfg.Backend)))
 
 			runner, err := tools.NewExecRunner()
 			if err != nil {
@@ -96,16 +97,20 @@ Examples:
 				log.Info("history: disabled via TFAI_HISTORY_DB=disabled")
 			}
 
+			retriever, closeRetriever := buildRetriever(ctx, log)
+			defer closeRetriever()
+
 			tfAgent, err := agent.New(ctx, &agent.Config{
 				ChatModel: chatModel,
 				Tools:     agentTools,
 				History:   historyStore,
+				Retriever: retriever,
 			})
 			if err != nil {
 				return fmt.Errorf("serve: failed to initialise agent: %w", err)
 			}
 
-			pingers := buildPingers(ctx, chatModel, log)
+			pingers := buildPingers(ctx, chatModel, providerCfg, log)
 
 			srv, err := server.New(tfAgent, &server.Config{
 				Host:    host,

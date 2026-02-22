@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -47,9 +48,13 @@ Examples:
 
 			agentTools := buildTools(runner)
 
+			retriever, closeRetriever := buildRetriever(ctx, slog.Default())
+			defer closeRetriever()
+
 			tfAgent, err := agent.New(ctx, &agent.Config{
 				ChatModel: chatModel,
 				Tools:     agentTools,
+				Retriever: retriever,
 			})
 			if err != nil {
 				return fmt.Errorf("generate: failed to initialise agent: %w", err)

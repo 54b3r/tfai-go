@@ -30,8 +30,9 @@ type Document struct {
 // VectorStore is the interface for persisting and searching document embeddings.
 // Implementations must be safe to call from multiple goroutines.
 type VectorStore interface {
-	// Upsert stores or updates a batch of documents with their embeddings.
-	Upsert(ctx context.Context, docs []Document) error
+	// Upsert stores or updates a batch of documents with their pre-computed embeddings.
+	// The embeddings slice must be parallel to docs — embeddings[i] is the vector for docs[i].
+	Upsert(ctx context.Context, docs []Document, embeddings [][]float32) error
 
 	// Search performs a semantic similarity search and returns the top-k
 	// most relevant documents for the given query embedding.

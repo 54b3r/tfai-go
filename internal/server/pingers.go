@@ -3,33 +3,50 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/qdrant/go-client/qdrant"
+
+	"github.com/54b3r/tfai-go/internal/provider"
 )
 
 // LLMPinger probes an LLM backend by sending a minimal single-token generate
 // request. It satisfies the Pinger interface and is used by GET /api/ready.
 type LLMPinger struct {
-	// model is the chat model to probe.
+	// DEPRECATED: model is the chat model to probe.
 	model model.ToolCallingChatModel
+	// Use healthCheck httpCheckers instead to save on LLM calls (token waste)
+	healthCheck provider.HealthCheckConfig
 	// name identifies the backend in readiness responses (e.g. "ollama").
 	name string
 }
 
 // NewLLMPinger constructs an LLMPinger for the given model and backend name.
-func NewLLMPinger(m model.ToolCallingChatModel, name string) *LLMPinger {
-	return &LLMPinger{model: m, name: name}
+// TODO: Remove model parameter when all providers are migrated to use healthCheck
+func NewLLMPinger(m model.ToolCallingChatModel, hc provider.HealthCheckConfig, name string) *LLMPinger {
+	return &LLMPinger{model: m, healthCheck: hc, name: name}
 }
 
 // Name returns the backend label used in readiness responses.
 func (p *LLMPinger) Name() string { return p.name }
 
-// Ping sends a minimal generate request to the LLM backend.
-// Returns nil if the backend responds, or an error if it is unreachable or
-// returns an unexpected failure. The context deadline controls the timeout.
+// Ping probes the LLM backend for readiness. When a zero-cost HealthCheckConfig
+// is available it is used exclusively; otherwise it falls back to a single-token
+// Generate call (which consumes tokens — avoid where possible).
 func (p *LLMPinger) Ping(ctx context.Context) error {
+	if p.healthCheck != nil {
+		if err := p.healthCheck.HealthCheck(ctx); err != nil {
+			return fmt.Errorf("%s health check failed: %w", p.name, err)
+		}
+		return nil
+	}
+
+	// Legacy fallback — burns tokens. Remove when all providers implement HealthCheckConfig.
+	slog.Warn("pinger: falling back to Generate-based health check — tokens will be consumed",
+		slog.String("backend", p.name),
+	)
 	msgs := []*schema.Message{
 		schema.UserMessage("ping"),
 	}

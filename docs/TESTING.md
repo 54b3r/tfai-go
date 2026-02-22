@@ -2,7 +2,7 @@
 
 **Purpose:** Step-by-step guide for verifying every feature of tfai-go after any code change. Designed to be followed without AI assistance.
 
-**Last updated:** 2026-02-20 (v0.18.0)
+**Last updated:** 2026-02-22 (v0.20.x — RAG pipeline wired)
 
 ---
 
@@ -22,6 +22,7 @@
 12. [Security Regression Tests](#12-security-regression-tests)
 13. [Graceful Shutdown Test](#13-graceful-shutdown-test)
 14. [Known Limitations](#14-known-limitations)
+15. [RAG Pipeline Smoke Tests](#15-rag-pipeline-smoke-tests)
 
 ---
 
@@ -188,18 +189,29 @@ echo 'Error: creating EC2 Instance: UnauthorizedAccess' > /tmp/plan-error.txt
 
 **Expected:** Response about IAM permissions and how to fix them.
 
-### 3.7 Ingest (stub — currently not wired)
+### 3.7 Ingest (requires Qdrant + embedder)
 
 ```bash
+# Without Qdrant running — expect a clear connection error
 ./bin/tfai ingest --provider aws \
   --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
 ```
 
-**Expected:** Prints message about pipeline being queued but not fully wired:
+**Expected (Qdrant not running):**
 ```
-ingestion pipeline: 1 source(s) queued for provider "aws"
-note: embedder and vector store must be configured via env vars (see README)
-TODO: wire QDRANT_HOST, QDRANT_PORT, and embedding model env vars
+time=... level=INFO msg="embedder initialised" provider=ollama
+time=... level=ERROR msg="ingest: failed to connect to Qdrant at localhost:6334: ..."
+```
+
+**Expected (Qdrant running — see section 15 for full RAG smoke test):**
+```
+time=... level=INFO msg="embedder initialised" provider=ollama
+time=... level=INFO msg="qdrant store ready" host=localhost port=6334 collection=tfai-docs
+time=... level=INFO msg="starting ingestion" sources=1 provider=aws
+time=... level=INFO msg="fetching https://..."
+time=... level=INFO msg="chunked ... into N chunks"
+time=... level=INFO msg="ingested N chunks from https://..."
+time=... level=INFO msg="ingestion complete" sources=1
 ```
 
 ### Cleanup
@@ -851,19 +863,331 @@ kill -TERM $(pgrep tfai)
 
 ---
 
+## 15. RAG Pipeline Smoke Tests
+
+**Requires:** Docker, Ollama with `nomic-embed-text` pulled (or an OpenAI API key), and a working LLM provider for the `ask`/`serve` steps.
+
+> **Note on container naming:** These steps use a dedicated `qdrant-smoke` container to avoid conflicting with any compose-managed `qdrant` container already running from `make up`. If ports 6333/6334 are already bound, run the pre-flight cleanup first.
+
+---
+
+### Pre-flight: clean any existing Qdrant containers
+
+Run this before starting if you have previously run `make up` or a prior smoke test:
+
+```bash
+# Stop and remove any existing standalone smoke container
+docker stop qdrant-smoke 2>/dev/null; docker rm qdrant-smoke 2>/dev/null
+
+# If you used make up previously, bring compose down first
+make down
+
+# Confirm ports 6333 and 6334 are free
+lsof -i :6333 -i :6334
+# Expected: no output (ports free)
+```
+
+---
+
+### 15.1 Start Qdrant (standalone smoke container)
+
+```bash
+docker run -d \
+  --name qdrant-smoke \
+  -p 6333:6333 \
+  -p 6334:6334 \
+  qdrant/qdrant
+
+# Wait ~3s then verify healthy
+sleep 3
+curl -s http://localhost:6333/healthz
+# Expected: empty 200 OK (no output, exit 0)
+
+curl -s http://localhost:6333/collections | jq .
+# Expected: {"result":{"collections":[]},"status":"ok","time":...}
+```
+
+---
+
+### 15.2 Configure embedding environment
+
+```bash
+# --- Ollama path (default) ---
+# Pull the embedding model if not already present
+ollama pull nomic-embed-text
+
+# Set required env vars
+export QDRANT_HOST=localhost
+export QDRANT_COLLECTION=tfai-docs
+export MODEL_PROVIDER=ollama
+export EMBEDDING_MODEL=nomic-embed-text
+export EMBEDDING_DIMENSIONS=768   # nomic-embed-text output size
+
+# --- OpenAI alternative ---
+# export MODEL_PROVIDER=openai
+# export OPENAI_API_KEY=sk-...
+# export EMBEDDING_DIMENSIONS=1536  # text-embedding-3-small default
+```
+
+---
+
+### 15.3 Build
+
+```bash
+make build
+# Expected: bin/tfai produced, no errors
+```
+
+---
+
+### 15.4 Ingest a single document
+
+```bash
+./bin/tfai ingest --provider aws \
+  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
+```
+
+**Expected log output:**
+```
+time=... level=INFO msg="embedder initialised" provider=ollama
+time=... level=INFO msg="qdrant store ready" host=localhost port=6334 collection=tfai-docs
+time=... level=INFO msg="starting ingestion" sources=1 provider=aws
+time=... level=INFO msg="fetching https://registry.terraform.io/..."
+time=... level=INFO msg="chunked https://... into N chunks"
+time=... level=INFO msg="ingested N chunks from https://..."
+time=... level=INFO msg="ingestion complete" sources=1
+```
+
+**Verify points landed in Qdrant:**
+```bash
+curl -s http://localhost:6333/collections/tfai-docs | jq '{points: .result.points_count, vectors: .result.vectors_count}'
+# Expected: points > 0, vectors > 0
+```
+
+---
+
+### 15.5 Ingest multiple documents
+
+```bash
+./bin/tfai ingest --provider aws \
+  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster \
+  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_node_group
+```
+
+**Verify point count increased:**
+```bash
+curl -s http://localhost:6333/collections/tfai-docs | jq '.result.points_count'
+# Expected: higher than after step 15.4
+```
+
+---
+
+### 15.6 Verify RAG context injection via ask
+
+```bash
+./bin/tfai ask "what are the required arguments for aws_s3_bucket?"
+```
+
+**Expected in stderr logs:**
+```
+time=... level=INFO msg="rag: retriever ready" host=localhost port=6334 collection=tfai-docs
+```
+
+**Expected in response:** Answer should reference specific S3 bucket arguments from the ingested docs (e.g. `bucket`, `force_destroy`) — not just generic LLM knowledge.
+
+---
+
+### 15.7 Verify RAG context injection via serve
+
+```bash
+# TERMINAL A — start server as a daemon, log to file
+./bin/tfai serve > /tmp/tfai-serve.log 2>&1 &
+SERVE_PID=$!
+echo "Server PID: $SERVE_PID"
+
+# TERMINAL A or B — tail logs in a separate window to watch startup
+tail -f /tmp/tfai-serve.log
+# Watch for these lines then Ctrl+C the tail (not the server):
+#   time=... level=INFO msg="rag: retriever ready" host=localhost port=6334 collection=tfai-docs
+#   time=... level=INFO msg="server listening" addr="http://127.0.0.1:8080"
+```
+
+```bash
+# TERMINAL A — readiness probe must include qdrant check
+curl -s http://localhost:8080/api/ready | jq .
+```
+
+**Expected:**
+```json
+{
+  "ready": true,
+  "checks": [
+    {"name": "ollama", "ok": true},
+    {"name": "qdrant",  "ok": true}
+  ]
+}
+```
+
+```bash
+# TERMINAL A — stop the server when done with this step
+kill $SERVE_PID
+```
+
+---
+
+### 15.8 Verify RAG disabled gracefully (no QDRANT_HOST)
+
+```bash
+# TERMINAL A — start server without QDRANT_HOST
+unset QDRANT_HOST
+./bin/tfai serve > /tmp/tfai-serve-norag.log 2>&1 &
+SERVE_PID=$!
+sleep 2
+
+# TERMINAL A or B — confirm NO "rag:" lines in startup logs
+grep "rag:" /tmp/tfai-serve-norag.log
+# Expected: no output
+
+# TERMINAL A — readiness probe must NOT include qdrant check
+curl -s http://localhost:8080/api/ready | jq .
+# Expected: only LLM check present, no "qdrant" entry
+
+# TERMINAL A — stop server and restore QDRANT_HOST for remaining steps
+kill $SERVE_PID
+export QDRANT_HOST=localhost
+```
+
+---
+
+### 15.9 Ingest error path — Qdrant not reachable
+
+```bash
+# Point at a port nothing is listening on
+QDRANT_HOST=localhost QDRANT_PORT=19999 ./bin/tfai ingest --provider aws \
+  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
+```
+
+**Expected:** Non-zero exit with a clear connection error:
+```
+Error: ingest: failed to connect to Qdrant at localhost:19999: ...
+```
+
+---
+
+### 15.10 Framework RAG Showcase — Atmos vs Vanilla Terraform
+
+This section demonstrates the pipeline's core value: grounding the LLM in your
+actual documentation rather than its training-data snapshot. Atmos is the test
+case because it is real, actively maintained, and niche enough that most LLMs
+have thin or stale training data — making the RAG delta obvious.
+
+> **Prerequisite:** Steps 15.1–15.4 are complete (Qdrant running, embedder configured, at least one vanilla Terraform doc already ingested).
+
+#### A. Ingest Atmos documentation
+
+```bash
+./bin/tfai ingest --provider atmos \
+  --url https://atmos.tools/core-concepts/components \
+  --url https://atmos.tools/core-concepts/stacks \
+  --url https://atmos.tools/core-concepts/stacks/inheritance \
+  --url https://atmos.tools/cli/commands/atmos-terraform
+
+# Verify points increased
+curl -s http://localhost:6333/collections/tfai-docs | jq '.result.points_count'
+```
+
+#### B. Control question — LLM already knows this cold
+
+```bash
+./bin/tfai ask "what does the terraform required_providers block do and why do you need it?"
+```
+
+**Expected:** A confident, accurate answer regardless of RAG. The LLM has seen
+this thousands of times in training. RAG may fire but the chunks won't change
+the answer meaningfully. This is your **control baseline**.
+
+#### C. RAG-dependent question — with RAG enabled
+
+```bash
+./bin/tfai ask "in Atmos, how does component inheritance work and what is the difference between vars, settings, and env in a stack manifest?"
+```
+
+**What to look for:**
+
+| Signal | Expected with RAG |
+|---|---|
+| `vars` vs `settings` vs `env` | Should cite the exact Atmos schema — `vars` are Terraform input variables, `settings` are Atmos-internal metadata, `env` are OS env vars passed to the process |
+| Inheritance chain | Should describe the specific Atmos import/inheritance model — base stacks, mixins, catalog patterns |
+| YAML structure | Should show correct Atmos stack manifest structure matching the ingested docs |
+| Log line | `rag: retriever ready` visible in stderr |
+
+#### D. Same question — without RAG (comparison)
+
+```bash
+unset QDRANT_HOST
+./bin/tfai ask "in Atmos, how does component inheritance work and what is the difference between vars, settings, and env in a stack manifest?"
+export QDRANT_HOST=localhost
+```
+
+**Expected without RAG:** Vague, generic, or hallucinated answer. The LLM may
+invent plausible-sounding but wrong field names or conflate Atmos with
+Terragrunt. Compare this side-by-side with the RAG-enabled answer from step C.
+
+#### E. Sharpest signal — version-specific question
+
+```bash
+./bin/tfai ask "what is the atmos.yaml CLI config file and what are the required top-level keys?"
+```
+
+`atmos.yaml` has a specific schema that changes between versions. Without RAG the
+LLM will either refuse or invent plausible-looking but incorrect field names.
+With RAG it should cite the actual keys from the ingested page.
+
+#### What this demonstrates
+
+The pipeline's value in one sentence: **it grounds the LLM in your actual
+documentation version, not its training-data snapshot.** For frameworks like Atmos
+that move fast, or for internal modules and custom providers the LLM has never
+seen, RAG is the difference between a useful answer and a confident hallucination.
+
+> **Extending to other frameworks:** The same pattern works for Terragrunt, CDK
+> for Terraform, Pulumi, Spacelift, Env0, or any internal tooling. Ingest the
+> docs, ask a framework-specific question, compare with and without RAG.
+
+---
+
+### Full environment teardown
+
+```bash
+# 1. Delete the smoke test collection (keeps Qdrant running)
+curl -s -X DELETE http://localhost:6333/collections/tfai-docs | jq .
+# Expected: {"result":true,"status":"ok","time":...}
+
+# 2. Stop and remove the smoke container
+docker stop qdrant-smoke && docker rm qdrant-smoke
+
+# 3. Unset smoke test env vars
+unset QDRANT_HOST QDRANT_COLLECTION EMBEDDING_MODEL EMBEDDING_DIMENSIONS
+
+# 4. Verify ports are free again
+lsof -i :6333 -i :6334
+# Expected: no output
+```
+
+---
+
 ## 14. Known Limitations
 
 These are documented issues that will cause unexpected behaviour during testing. They are tracked in `docs/ROADMAP.md`.
 
 | Issue | ID | Impact on Testing |
 |---|---|---|
-| `tfai ingest` is a stub | RAG-4 | Ingestion pipeline prints TODO message, no data is stored |
 | `httpRequestsTotal` / `httpDurationSeconds` are always zero | MF-1 | Metrics endpoint shows registered but unincremented counters |
-| LLMPinger sends full generate request | SF-3 | Readiness probe consumes tokens on paid APIs |
-| Qdrant port hardcoded to 6334 | SF-4 | `QDRANT_PORT` env var is ignored by the readiness probe |
 | No body size limit on `/api/workspace/create` and `/api/file` PUT | MF-2 | Oversized payloads on these endpoints won't be rejected |
 | `buildWorkspaceContext` has no file/size caps | MF-3 | Very large workspaces may cause slow responses or OOM |
 | Shutdown timeout (10s) < Chat timeout (5m) | SF-6 | Active SSE streams are killed during shutdown without error event |
+| Bedrock/Gemini embedders not implemented | RAG-5 | `tfai ingest` with `MODEL_PROVIDER=bedrock` or `gemini` returns a clear error |
+| HTML stripping is regex-based | RAG-6 | Script/style tag content may appear in chunks; good enough for Terraform Registry docs |
 
 ---
 
@@ -886,4 +1210,10 @@ Use this checklist after any change:
 [ ] curl GET /metrics                  — Prometheus output present
 [ ] Browser http://localhost:8080      — UI loads
 [ ] Ctrl+C on server                   — clean shutdown, exit 0
+
+# RAG pipeline (requires Qdrant running)
+[ ] tfai ingest --provider aws --url <url>   — chunks ingested, logged
+[ ] curl /api/ready (with QDRANT_HOST set)   — qdrant check appears
+[ ] tfai ask with QDRANT_HOST set            — RAG context injected (check logs)
+[ ] tfai serve with QDRANT_HOST set          — "rag: retriever ready" in startup logs
 ```

@@ -91,12 +91,15 @@ func (s *QdrantStore) ensureCollection(ctx context.Context) error {
 	return nil
 }
 
-// Upsert stores or updates a batch of documents with their embeddings.
-// Each Document must have its embedding pre-computed; this method does not
-// call the Embedder — use the Retriever implementation for end-to-end upsert.
-func (s *QdrantStore) Upsert(ctx context.Context, docs []Document) error {
+// Upsert stores or updates a batch of documents with their pre-computed embeddings.
+// The embeddings slice must be parallel to docs — embeddings[i] is the vector for docs[i].
+func (s *QdrantStore) Upsert(ctx context.Context, docs []Document, embeddings [][]float32) error {
+	if len(embeddings) != len(docs) {
+		return fmt.Errorf("qdrant: embeddings length %d does not match docs length %d", len(embeddings), len(docs))
+	}
+
 	points := make([]*qdrant.PointStruct, 0, len(docs))
-	for _, doc := range docs {
+	for i, doc := range docs {
 		payload := map[string]interface{}{
 			"content": doc.Content,
 			"source":  doc.Source,
@@ -107,6 +110,7 @@ func (s *QdrantStore) Upsert(ctx context.Context, docs []Document) error {
 
 		points = append(points, &qdrant.PointStruct{
 			Id:      qdrant.NewIDUUID(doc.ID),
+			Vectors: qdrant.NewVectors(embeddings[i]...),
 			Payload: qdrant.NewValueMap(payload),
 		})
 	}
