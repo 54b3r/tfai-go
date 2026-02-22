@@ -91,21 +91,25 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	// Protected routes: auth → rate-limit → handler.
+	// protected wraps a handler with auth, rate-limiting, and HTTP metrics.
 	// /api/health and /api/ready are exempt — they must always respond
 	// regardless of auth state (liveness/readiness probes).
-	protected := func(h http.Handler) http.Handler {
-		return authMiddleware(cfg.APIKey, rl.middleware(h))
+	protected := func(pattern string, h http.Handler) http.Handler {
+		return metricsMiddleware(s.metrics, pattern,
+			authMiddleware(cfg.APIKey, rl.middleware(h)))
 	}
-	mux.Handle("POST /api/chat", protected(http.HandlerFunc(s.handleChat)))
-	mux.Handle("GET /api/workspace", protected(http.HandlerFunc(s.handleWorkspace)))
-	mux.Handle("POST /api/workspace/create", protected(http.HandlerFunc(s.handleWorkspaceCreate)))
-	mux.Handle("GET /api/file", protected(http.HandlerFunc(s.handleFileRead)))
-	mux.Handle("PUT /api/file", protected(http.HandlerFunc(s.handleFileSave)))
+	unprotected := func(pattern string, h http.Handler) http.Handler {
+		return metricsMiddleware(s.metrics, pattern, h)
+	}
+	mux.Handle("POST /api/chat", protected("POST /api/chat", http.HandlerFunc(s.handleChat)))
+	mux.Handle("GET /api/workspace", protected("GET /api/workspace", http.HandlerFunc(s.handleWorkspace)))
+	mux.Handle("POST /api/workspace/create", protected("POST /api/workspace/create", http.HandlerFunc(s.handleWorkspaceCreate)))
+	mux.Handle("GET /api/file", protected("GET /api/file", http.HandlerFunc(s.handleFileRead)))
+	mux.Handle("PUT /api/file", protected("PUT /api/file", http.HandlerFunc(s.handleFileSave)))
 	// Unprotected routes.
-	mux.HandleFunc("GET /api/health", s.handleHealth)
-	mux.HandleFunc("GET /api/ready", s.handleReady)
-	mux.HandleFunc("GET /api/config", s.handleConfig)
+	mux.Handle("GET /api/health", unprotected("GET /api/health", http.HandlerFunc(s.handleHealth)))
+	mux.Handle("GET /api/ready", unprotected("GET /api/ready", http.HandlerFunc(s.handleReady)))
+	mux.Handle("GET /api/config", unprotected("GET /api/config", http.HandlerFunc(s.handleConfig)))
 	// /metrics is intentionally unauthenticated — Prometheus scrapers run
 	// outside the auth boundary. Restrict network access at the infra layer.
 	mux.Handle("GET /metrics", promhttp.HandlerFor(cfg.MetricsGatherer, promhttp.HandlerOpts{}))
@@ -234,11 +238,15 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	duration := time.Since(start)
 	s.metrics.chatRequestsTotal.WithLabelValues("ok").Inc()
-	s.metrics.chatDurationSeconds.WithLabelValues("ok").Observe(time.Since(start).Seconds())
+	s.metrics.chatDurationSeconds.WithLabelValues("ok").Observe(duration.Seconds())
+	log.Info("chat complete",
+		slog.Duration("duration", duration),
+		slog.Bool("files_written", filesWritten),
+	)
 
 	if filesWritten {
-		log.Info("chat files written")
 		fmt.Fprintf(w, "event: files_written\ndata: true\n\n")
 	}
 	// Signal stream completion.

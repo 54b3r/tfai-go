@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -52,6 +53,24 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.status = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// metricsMiddleware records Prometheus HTTP metrics for every request.
+// It increments httpRequestsTotal (method, handler, code) and observes
+// httpDurationSeconds (method, handler) after the handler returns.
+// handler is the logical route name (e.g. "POST /api/chat") used as the
+// label value so cardinality stays bounded regardless of path parameters.
+func metricsMiddleware(m *serverMetrics, handler string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+		next.ServeHTTP(rw, r)
+		elapsed := time.Since(start)
+
+		code := fmt.Sprintf("%d", rw.status)
+		m.httpRequestsTotal.WithLabelValues(r.Method, handler, code).Inc()
+		m.httpDurationSeconds.WithLabelValues(r.Method, handler).Observe(elapsed.Seconds())
+	})
 }
 
 // newRequestID returns a 16-byte cryptographically random hex string.

@@ -29,8 +29,16 @@ func resolveAbsDir(raw string) (string, error) {
 }
 
 // writeJSONError writes a JSON-formatted error response with the given status code.
+// msg is marshalled via encoding/json to prevent injection via user-controlled values.
 func writeJSONError(w http.ResponseWriter, msg string, status int) {
-	http.Error(w, `{"error":"`+msg+`"}`, status)
+	b, err := json.Marshal(map[string]string{"error": msg})
+	if err != nil {
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(b) //nolint:errcheck // best-effort write on error path
 }
 
 // confineToDir validates that target resolves to a path inside root after
@@ -106,10 +114,17 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// maxWorkspaceCreateBodyBytes is the maximum allowed size for a /api/workspace/create request body.
+const maxWorkspaceCreateBodyBytes = 1 << 20 // 1 MiB
+
+// maxFileSaveBodyBytes is the maximum allowed size for a /api/file PUT request body.
+const maxFileSaveBodyBytes = 5 << 20 // 5 MiB
+
 // handleWorkspaceCreate handles POST /api/workspace/create.
 // It writes a minimal Terraform scaffold into an existing directory.
 // The directory must already exist — this handler will not create it.
 func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxWorkspaceCreateBodyBytes)
 	var body createWorkspaceRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -199,6 +214,7 @@ func (s *Server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 // Writes content to the given path. The path must resolve within the declared
 // workspaceDir to prevent writes outside the user's workspace.
 func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFileSaveBodyBytes)
 	var body fileSaveRequest
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
