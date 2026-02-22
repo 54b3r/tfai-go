@@ -865,40 +865,82 @@ kill -TERM $(pgrep tfai)
 
 ## 15. RAG Pipeline Smoke Tests
 
-**Requires:** Qdrant running (`make up` or `docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant`) and an embedding-capable model.
+**Requires:** Docker, Ollama with `nomic-embed-text` pulled (or an OpenAI API key), and a working LLM provider for the `ask`/`serve` steps.
 
-### 15.1 Start Qdrant
+> **Note on container naming:** These steps use a dedicated `qdrant-smoke` container to avoid conflicting with any compose-managed `qdrant` container already running from `make up`. If ports 6333/6334 are already bound, run the pre-flight cleanup first.
+
+---
+
+### Pre-flight: clean any existing Qdrant containers
+
+Run this before starting if you have previously run `make up` or a prior smoke test:
 
 ```bash
-# Via docker compose (recommended)
-make up
+# Stop and remove any existing standalone smoke container
+docker stop qdrant-smoke 2>/dev/null; docker rm qdrant-smoke 2>/dev/null
 
-# Or standalone
-docker run -d --name qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant
+# If you used make up previously, bring compose down first
+make down
 
-# Verify Qdrant is healthy
-curl -s http://localhost:6333/healthz
-# Expected: empty 200 OK
+# Confirm ports 6333 and 6334 are free
+lsof -i :6333 -i :6334
+# Expected: no output (ports free)
 ```
+
+---
+
+### 15.1 Start Qdrant (standalone smoke container)
+
+```bash
+docker run -d \
+  --name qdrant-smoke \
+  -p 6333:6333 \
+  -p 6334:6334 \
+  qdrant/qdrant
+
+# Wait ~3s then verify healthy
+sleep 3
+curl -s http://localhost:6333/healthz
+# Expected: empty 200 OK (no output, exit 0)
+
+curl -s http://localhost:6333/collections | jq .
+# Expected: {"result":{"collections":[]},"status":"ok","time":...}
+```
+
+---
 
 ### 15.2 Configure embedding environment
 
 ```bash
-# Ollama (default — pull the embedding model first)
+# --- Ollama path (default) ---
+# Pull the embedding model if not already present
 ollama pull nomic-embed-text
 
+# Set required env vars
 export QDRANT_HOST=localhost
 export QDRANT_COLLECTION=tfai-docs
-# MODEL_PROVIDER=ollama is the default — no extra vars needed
+export MODEL_PROVIDER=ollama
+export EMBEDDING_MODEL=nomic-embed-text
+export EMBEDDING_DIMENSIONS=768   # nomic-embed-text output size
 
-# OpenAI alternative
-export MODEL_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
-# EMBEDDING_MODEL defaults to text-embedding-3-small
-# EMBEDDING_DIMENSIONS defaults to 1536
+# --- OpenAI alternative ---
+# export MODEL_PROVIDER=openai
+# export OPENAI_API_KEY=sk-...
+# export EMBEDDING_DIMENSIONS=1536  # text-embedding-3-small default
 ```
 
-### 15.3 Ingest a single document
+---
+
+### 15.3 Build
+
+```bash
+make build
+# Expected: bin/tfai produced, no errors
+```
+
+---
+
+### 15.4 Ingest a single document
 
 ```bash
 ./bin/tfai ingest --provider aws \
@@ -916,14 +958,15 @@ time=... level=INFO msg="ingested N chunks from https://..."
 time=... level=INFO msg="ingestion complete" sources=1
 ```
 
-**Verify data landed in Qdrant:**
+**Verify points landed in Qdrant:**
 ```bash
-# Check collection exists and has points
-curl -s http://localhost:6333/collections/tfai-docs | jq '.result.points_count'
-# Expected: N > 0
+curl -s http://localhost:6333/collections/tfai-docs | jq '{points: .result.points_count, vectors: .result.vectors_count}'
+# Expected: points > 0, vectors > 0
 ```
 
-### 15.4 Ingest multiple documents
+---
+
+### 15.5 Ingest multiple documents
 
 ```bash
 ./bin/tfai ingest --provider aws \
@@ -931,39 +974,50 @@ curl -s http://localhost:6333/collections/tfai-docs | jq '.result.points_count'
   --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_node_group
 ```
 
-**Expected:** Two fetch/chunk/ingest cycles logged, point count increases.
+**Verify point count increased:**
+```bash
+curl -s http://localhost:6333/collections/tfai-docs | jq '.result.points_count'
+# Expected: higher than after step 15.4
+```
 
-### 15.5 Verify RAG context injection via ask
+---
+
+### 15.6 Verify RAG context injection via ask
 
 ```bash
-export QDRANT_HOST=localhost
-
 ./bin/tfai ask "what are the required arguments for aws_s3_bucket?"
 ```
 
-**Expected in server logs (or stderr):**
+**Expected in stderr logs:**
 ```
 time=... level=INFO msg="rag: retriever ready" host=localhost port=6334 collection=tfai-docs
 ```
 
-**Expected in response:** Answer should reference specific S3 bucket arguments from the ingested docs (e.g. `bucket`, `force_destroy`) — not generic LLM knowledge.
+**Expected in response:** Answer should reference specific S3 bucket arguments from the ingested docs (e.g. `bucket`, `force_destroy`) — not just generic LLM knowledge.
 
-### 15.6 Verify RAG context injection via serve
+---
+
+### 15.7 Verify RAG context injection via serve
 
 ```bash
-export QDRANT_HOST=localhost
-./bin/tfai serve
+# TERMINAL A — start server as a daemon, log to file
+./bin/tfai serve > /tmp/tfai-serve.log 2>&1 &
+SERVE_PID=$!
+echo "Server PID: $SERVE_PID"
+
+# TERMINAL A or B — tail logs in a separate window to watch startup
+tail -f /tmp/tfai-serve.log
+# Watch for these lines then Ctrl+C the tail (not the server):
+#   time=... level=INFO msg="rag: retriever ready" host=localhost port=6334 collection=tfai-docs
+#   time=... level=INFO msg="server listening" addr="http://127.0.0.1:8080"
 ```
 
-**Expected startup logs:**
-```
-time=... level=INFO msg="rag: retriever ready" host=localhost port=6334 collection=tfai-docs
-```
-
-**Expected readiness probe includes Qdrant:**
 ```bash
+# TERMINAL A — readiness probe must include qdrant check
 curl -s http://localhost:8080/api/ready | jq .
 ```
+
+**Expected:**
 ```json
 {
   "ready": true,
@@ -974,36 +1028,68 @@ curl -s http://localhost:8080/api/ready | jq .
 }
 ```
 
-### 15.7 Verify RAG disabled gracefully when Qdrant absent
-
 ```bash
-# Unset QDRANT_HOST (or don't set it)
-unset QDRANT_HOST
-./bin/tfai serve
+# TERMINAL A — stop the server when done with this step
+kill $SERVE_PID
 ```
 
-**Expected:** No `rag:` log lines at startup. `ask` and `generate` work normally without RAG context. `/api/ready` shows only the LLM check.
+---
 
-### 15.8 Ingest error path — Qdrant not running
+### 15.8 Verify RAG disabled gracefully (no QDRANT_HOST)
 
 ```bash
-unset QDRANT_HOST  # or point to a non-running host
-QDRANT_HOST=localhost ./bin/tfai ingest --provider aws \
+# TERMINAL A — start server without QDRANT_HOST
+unset QDRANT_HOST
+./bin/tfai serve > /tmp/tfai-serve-norag.log 2>&1 &
+SERVE_PID=$!
+sleep 2
+
+# TERMINAL A or B — confirm NO "rag:" lines in startup logs
+grep "rag:" /tmp/tfai-serve-norag.log
+# Expected: no output
+
+# TERMINAL A — readiness probe must NOT include qdrant check
+curl -s http://localhost:8080/api/ready | jq .
+# Expected: only LLM check present, no "qdrant" entry
+
+# TERMINAL A — stop server and restore QDRANT_HOST for remaining steps
+kill $SERVE_PID
+export QDRANT_HOST=localhost
+```
+
+---
+
+### 15.9 Ingest error path — Qdrant not reachable
+
+```bash
+# Point at a port nothing is listening on
+QDRANT_HOST=localhost QDRANT_PORT=19999 ./bin/tfai ingest --provider aws \
   --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
 ```
 
-**Expected:** Clear error message, non-zero exit:
+**Expected:** Non-zero exit with a clear connection error:
 ```
-Error: ingest: failed to connect to Qdrant at localhost:6334: ...
+Error: ingest: failed to connect to Qdrant at localhost:19999: ...
 ```
 
-### Cleanup
+---
+
+### Full environment teardown
 
 ```bash
-# Remove the test collection
-curl -s -X DELETE http://localhost:6333/collections/tfai-docs
-# Or stop Qdrant entirely
-docker stop qdrant && docker rm qdrant
+# 1. Delete the smoke test collection (keeps Qdrant running)
+curl -s -X DELETE http://localhost:6333/collections/tfai-docs | jq .
+# Expected: {"result":true,"status":"ok","time":...}
+
+# 2. Stop and remove the smoke container
+docker stop qdrant-smoke && docker rm qdrant-smoke
+
+# 3. Unset smoke test env vars
+unset QDRANT_HOST QDRANT_COLLECTION EMBEDDING_MODEL EMBEDDING_DIMENSIONS
+
+# 4. Verify ports are free again
+lsof -i :6333 -i :6334
+# Expected: no output
 ```
 
 ---
