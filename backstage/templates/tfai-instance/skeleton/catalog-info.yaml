@@ -1,0 +1,20 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.instanceName }}
+  description: ${{ values.description }}
+  annotations:
+    github.com/project-slug: ${{ values.repoUrl | parseRepoUrl | pick('owner') }}/${{ values.repoUrl | parseRepoUrl | pick('repo') }}
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - terraform
+    - ai
+    - platform-engineering
+spec:
+  type: service
+  lifecycle: production
+  owner: ${{ values.owner }}
+  dependsOn:
+{%- if values.enableRag %}
+    - resource:default/qdrant
+{%- endif %}

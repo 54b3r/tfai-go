@@ -1,0 +1,137 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: tfai-go
+  title: TF-AI
+  description: >
+    Local-first AI Terraform expert agent for platform engineers and consultants.
+    Generates infrastructure code, diagnoses failures, and provides expert guidance
+    across AWS, Azure, and GCP — powered by any LLM backend.
+  annotations:
+    github.com/project-slug: 54b3r/tfai-go
+    backstage.io/techdocs-ref: dir:.
+    backstage.io/source-location: url:https://github.com/54b3r/tfai-go
+  tags:
+    - go
+    - terraform
+    - ai
+    - iac
+    - platform-engineering
+    - rag
+    - llm
+  links:
+    - url: https://github.com/54b3r/tfai-go
+      title: GitHub Repository
+      icon: github
+    - url: https://github.com/54b3r/tfai-go/blob/main/README.md
+      title: Documentation
+      icon: docs
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-engineering
+  providesApis:
+    - tfai-api
+  dependsOn:
+    - resource:default/qdrant
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: tfai-api
+  title: TF-AI REST API
+  description: >
+    REST/SSE API for the TF-AI agent. Provides health, readiness, chat,
+    workspace, and file management endpoints.
+  tags:
+    - rest
+    - sse
+    - terraform
+spec:
+  type: openapi
+  lifecycle: production
+  owner: platform-engineering
+  definition: |
+    openapi: 3.0.0
+    info:
+      title: TF-AI API
+      version: 0.24.0
+      description: REST/SSE API for the TF-AI Terraform expert agent.
+    servers:
+      - url: http://localhost:8080
+        description: Local development
+    paths:
+      /api/health:
+        get:
+          summary: Liveness probe
+          description: Returns 200 while process is running.
+          responses:
+            '200':
+              description: OK
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+      /api/ready:
+        get:
+          summary: Readiness probe
+          description: Probes LLM + Qdrant backends. Returns 200 or 503.
+          responses:
+            '200':
+              description: All backends healthy
+            '503':
+              description: One or more backends unhealthy
+      /api/chat:
+        post:
+          summary: Stream agent response (SSE)
+          description: Send a message to the TF-AI agent and receive a streamed response.
+          security:
+            - bearerAuth: []
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    message:
+                      type: string
+          responses:
+            '200':
+              description: SSE stream of agent response
+      /api/config:
+        get:
+          summary: UI bootstrap config
+          responses:
+            '200':
+              description: Returns auth requirement status
+      /metrics:
+        get:
+          summary: Prometheus metrics
+          responses:
+            '200':
+              description: Prometheus text format metrics
+    components:
+      securitySchemes:
+        bearerAuth:
+          type: http
+          scheme: bearer
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: qdrant
+  title: Qdrant Vector Store
+  description: Qdrant vector database used by TF-AI for RAG document storage.
+  tags:
+    - vector-database
+    - qdrant
+    - rag
+spec:
+  type: database
+  owner: platform-engineering
+  lifecycle: production

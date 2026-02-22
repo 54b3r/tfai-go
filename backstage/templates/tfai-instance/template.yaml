@@ -1,0 +1,149 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: tfai-instance
+  title: Deploy TF-AI Instance
+  description: >
+    Scaffold a pre-configured TF-AI deployment with Docker Compose,
+    environment configuration, and Backstage catalog registration.
+  tags:
+    - terraform
+    - ai
+    - platform-engineering
+    - iac
+    - rag
+  annotations:
+    backstage.io/time-saved: PT2H
+spec:
+  owner: platform-engineering
+  type: service
+
+  parameters:
+    - title: Instance Configuration
+      required:
+        - instanceName
+        - owner
+        - modelProvider
+      properties:
+        instanceName:
+          title: Instance Name
+          type: string
+          description: Unique name for this TF-AI deployment (e.g. tfai-team-platform)
+          pattern: "^[a-z][a-z0-9-]*$"
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+          description: Short description of this instance's purpose
+          default: TF-AI Terraform expert agent
+        owner:
+          title: Owner
+          type: string
+          description: Team or user that owns this instance
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+        modelProvider:
+          title: Model Provider
+          type: string
+          description: LLM backend to use
+          enum:
+            - ollama
+            - openai
+            - azure
+            - bedrock
+            - gemini
+          default: ollama
+          enumNames:
+            - Ollama (local)
+            - OpenAI
+            - Azure OpenAI
+            - AWS Bedrock
+            - Google Gemini
+        enableRag:
+          title: Enable RAG (Qdrant)
+          type: boolean
+          description: Deploy Qdrant alongside TF-AI for document-backed answers
+          default: true
+
+    - title: Server Settings
+      properties:
+        serverPort:
+          title: Server Port
+          type: integer
+          description: TCP port for the TF-AI HTTP server
+          default: 8080
+        enableAuth:
+          title: Enable API Authentication
+          type: boolean
+          description: Require Bearer token on API endpoints
+          default: true
+        enableTracing:
+          title: Enable Langfuse Tracing
+          type: boolean
+          description: Send LLM traces to Langfuse for observability
+          default: false
+
+    - title: Repository Location
+      required:
+        - repoUrl
+      properties:
+        repoUrl:
+          title: Repository Location
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+
+  steps:
+    - id: fetchBase
+      name: Fetch Skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          instanceName: ${{ parameters.instanceName }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          modelProvider: ${{ parameters.modelProvider }}
+          enableRag: ${{ parameters.enableRag }}
+          serverPort: ${{ parameters.serverPort }}
+          enableAuth: ${{ parameters.enableAuth }}
+          enableTracing: ${{ parameters.enableTracing }}
+
+    - id: publish
+      name: Publish to GitHub
+      action: publish:github
+      input:
+        allowedHosts:
+          - github.com
+        description: ${{ parameters.description }}
+        repoUrl: ${{ parameters.repoUrl }}
+        defaultBranch: main
+        repoVisibility: private
+
+    - id: register
+      name: Register in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps['publish'].output.remoteUrl }}
+      - title: Open in Catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}
+    text:
+      - title: Getting Started
+        content: |
+          ## Next Steps
+
+          1. Clone the repository and configure your `.env` file
+          2. Run `make up` to start Qdrant + Langfuse
+          3. Run `make run` to start TF-AI
+          4. Visit **http://localhost:${{ parameters.serverPort }}** for the web UI
