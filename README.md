@@ -82,7 +82,81 @@ native credential env vars — no homogenised `MODEL_API_KEY` abstraction.
 
 Optional shared tuning: `MODEL_MAX_TOKENS` (default: 4096), `MODEL_TEMPERATURE` (default: 0.2).
 
-See `.env.example` for the full reference with per-provider examples.
+See `config.yaml.example` for the full YAML reference.
+
+---
+
+## YAML Configuration
+
+tfai supports a layered configuration system:
+
+**Precedence**: env vars > YAML file > built-in defaults
+
+Environment variables **always win** — existing workflows are unaffected.
+
+### Config file search order
+
+1. `--config <path>` CLI flag (explicit)
+2. `TFAI_CONFIG` environment variable
+3. `~/.tfai/config.yaml`
+4. `./tfai.yaml`
+
+If no file is found, tfai runs entirely from env vars (backwards compatible).
+
+### Example
+
+```yaml
+model:
+  provider: azure
+  max_tokens: 8192
+  temperature: 0.3
+  azure:
+    endpoint: https://my-resource.openai.azure.com
+    deployment: gpt-4o
+
+embedding:
+  provider: ollama
+  model: nomic-embed-text
+
+qdrant:
+  host: qdrant.internal
+  port: 6334
+  collection: my-docs
+
+logging:
+  level: debug
+  format: text
+```
+
+> **Security**: Keep API keys in env vars, not the YAML file. The file is for
+> non-secret operational config (provider, model, host, port, etc.).
+
+See `config.yaml.example` for the complete reference with all sections.
+
+---
+
+## Audit Logging
+
+Every CLI command emits a structured JSON audit log entry at startup:
+
+```json
+{
+  "level": "INFO",
+  "msg": "audit: command start",
+  "command": "serve",
+  "config_file": "~/.tfai/config.yaml",
+  "MODEL_PROVIDER": "azure",
+  "OPENAI_API_KEY": "unset",
+  "AZURE_OPENAI_API_KEY": "set",
+  "QDRANT_HOST": "localhost"
+}
+```
+
+**Key sanitisation**: Secret values (API keys, tokens) are logged as `"set"` or
+`"unset"` only — never the actual value. Non-secret config (provider, host,
+port, model) is logged in full for operational visibility.
+
+The audit trail is emitted via `slog` and respects `LOG_LEVEL` / `LOG_FORMAT`.
 
 ---
 
@@ -94,6 +168,8 @@ tfai-go/
 │   └── commands/               # ask, generate, diagnose, serve, ingest
 ├── internal/
 │   ├── agent/                  # Eino ReAct agent + RAG context injection
+│   ├── audit/                  # Structured audit logger with key sanitisation
+│   ├── config/                 # YAML config loader (layered: defaults → YAML → env)
 │   ├── provider/               # ChatModel factory (interface + backends)
 │   ├── tools/                  # Terraform tools: plan, state, generate
 │   ├── rag/                    # VectorStore + Embedder + Retriever interfaces
@@ -299,6 +375,7 @@ See `.windsurf/rules/` for the full coding, SRE, and security policy.
 | [docs/REVIEW.md](docs/REVIEW.md) | Full codebase review and architecture scorecard |
 | [docs/SRE_ASSESSMENT.md](docs/SRE_ASSESSMENT.md) | SRE readiness assessment — profiling, security, logging, observability |
 | [docs/STRATEGIC_ANALYSIS.md](docs/STRATEGIC_ANALYSIS.md) | Strategic analysis — accelerator vs product, MCP evaluation |
+| [config.yaml.example](config.yaml.example) | Full YAML configuration reference with all sections |
 | [.env.example](.env.example) | Environment variable reference with per-provider examples |
 
 ---

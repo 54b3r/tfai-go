@@ -1,0 +1,67 @@
+# tfai configuration file
+# Copy to ~/.tfai/config.yaml or ./tfai.yaml
+#
+# Precedence: env vars > YAML > built-in defaults
+# Environment variables ALWAYS override YAML values.
+# Secrets (API keys) are best set via env vars, not in this file.
+
+model:
+  # provider: ollama | openai | azure | bedrock | gemini
+  provider: ollama
+  max_tokens: 4096
+  temperature: 0.2
+
+  ollama:
+    host: http://localhost:11434
+    model: llama3
+
+  # openai:
+  #   api_key: ""          # prefer OPENAI_API_KEY env var
+  #   model: gpt-4o
+
+  # azure:
+  #   api_key: ""          # prefer AZURE_OPENAI_API_KEY env var
+  #   endpoint: ""         # prefer AZURE_OPENAI_ENDPOINT env var
+  #   deployment: ""
+  #   api_version: "2025-04-01-preview"
+
+  # bedrock:
+  #   region: us-east-1
+  #   model_id: ""
+
+  # gemini:
+  #   api_key: ""          # prefer GOOGLE_API_KEY env var
+  #   model: gemini-1.5-pro
+
+embedding:
+  # provider: ollama | openai | azure (defaults to model.provider)
+  # provider: ollama
+  # model: nomic-embed-text
+  # dimensions: 768
+  # api_key: ""            # prefer EMBEDDING_API_KEY env var
+  # endpoint: ""           # prefer EMBEDDING_ENDPOINT env var
+
+qdrant:
+  # host: localhost        # set to enable RAG
+  # port: 6334
+  # collection: tfai-docs
+  # api_key: ""            # prefer QDRANT_API_KEY env var
+  # tls: false
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  # api_key: ""            # prefer TFAI_API_KEY env var
+
+logging:
+  level: info              # debug | info | warn | error
+  format: json             # json | text
+
+history:
+  # db_path: ~/.tfai/history.db
+  # db_path: disabled      # set to "disabled" to turn off
+
+# tracing:
+#   public_key: ""         # prefer LANGFUSE_PUBLIC_KEY env var
+#   secret_key: ""         # prefer LANGFUSE_SECRET_KEY env var
+#   host: ""               # prefer LANGFUSE_HOST env var
