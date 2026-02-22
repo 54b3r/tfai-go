@@ -97,10 +97,13 @@ Examples:
 				log.Info("history: disabled via TFAI_HISTORY_DB=disabled")
 			}
 
+			retriever := buildRetriever(ctx, log)
+
 			tfAgent, err := agent.New(ctx, &agent.Config{
 				ChatModel: chatModel,
 				Tools:     agentTools,
 				History:   historyStore,
+				Retriever: retriever,
 			})
 			if err != nil {
 				return fmt.Errorf("serve: failed to initialise agent: %w", err)

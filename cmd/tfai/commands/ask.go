@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -46,9 +47,12 @@ Examples:
 
 			agentTools := buildTools(runner)
 
+			retriever := buildRetriever(ctx, slog.Default())
+
 			tfAgent, err := agent.New(ctx, &agent.Config{
 				ChatModel: chatModel,
 				Tools:     agentTools,
+				Retriever: retriever,
 			})
 			if err != nil {
 				return fmt.Errorf("ask: failed to initialise agent: %w", err)

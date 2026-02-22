@@ -10,7 +10,9 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/qdrant/go-client/qdrant"
 
+	"github.com/54b3r/tfai-go/internal/embedder"
 	"github.com/54b3r/tfai-go/internal/provider"
+	"github.com/54b3r/tfai-go/internal/rag"
 	"github.com/54b3r/tfai-go/internal/server"
 	tftools "github.com/54b3r/tfai-go/internal/tools"
 )
@@ -43,6 +45,56 @@ func buildPingers(_ context.Context, chatModel model.ToolCallingChatModel, cfg *
 	}
 
 	return pingers
+}
+
+// buildRetriever constructs a rag.Retriever when QDRANT_HOST is set in the
+// environment. Returns nil when Qdrant is not configured — the agent treats a
+// nil retriever as "RAG disabled" and continues without context injection.
+func buildRetriever(ctx context.Context, log *slog.Logger) rag.Retriever {
+	qdrantHost := os.Getenv("QDRANT_HOST")
+	if qdrantHost == "" {
+		return nil
+	}
+
+	emb, err := embedder.NewFromEnv()
+	if err != nil {
+		log.Warn("rag: failed to initialise embedder, RAG disabled", slog.Any("error", err))
+		return nil
+	}
+
+	qdrantPort := getEnvInt("QDRANT_PORT", 6334)
+	collection := getEnvOrDefault("QDRANT_COLLECTION", "tfai-docs")
+	vectorSize := uint64(getEnvInt("EMBEDDING_DIMENSIONS", 1536)) //nolint:gosec // dimensions are bounded
+
+	store, err := rag.NewQdrantStore(ctx, &rag.QdrantConfig{
+		Host:       qdrantHost,
+		Port:       qdrantPort,
+		Collection: collection,
+		VectorSize: vectorSize,
+		APIKey:     os.Getenv("QDRANT_API_KEY"),
+		UseTLS:     os.Getenv("QDRANT_TLS") == "true",
+	})
+	if err != nil {
+		log.Warn("rag: failed to connect to Qdrant, RAG disabled",
+			slog.String("host", qdrantHost),
+			slog.Any("error", err),
+		)
+		return nil
+	}
+
+	retriever, err := rag.NewRetriever(emb, store, getEnvInt("RAG_TOP_K", 5))
+	if err != nil {
+		log.Warn("rag: failed to create retriever, RAG disabled", slog.Any("error", err))
+		_ = store.Close()
+		return nil
+	}
+
+	log.Info("rag: retriever ready",
+		slog.String("host", qdrantHost),
+		slog.Int("port", qdrantPort),
+		slog.String("collection", collection),
+	)
+	return retriever
 }
 
 // buildTools constructs the full list of Eino-compatible Terraform tools to
