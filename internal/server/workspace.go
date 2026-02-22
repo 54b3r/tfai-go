@@ -41,10 +41,10 @@ func writeJSONError(w http.ResponseWriter, msg string, status int) {
 	w.Write(b) //nolint:errcheck // best-effort write on error path
 }
 
-// confineToDir validates that target resolves to a path inside root after
+// ConfineToDir validates that target resolves to a path inside root after
 // cleaning both. This prevents path traversal attacks (e.g. "../../etc/passwd").
 // Returns the cleaned absolute target path or an error.
-func confineToDir(root, target string) (string, error) {
+func ConfineToDir(root, target string) (string, error) {
 	root = filepath.Clean(root)
 	target = filepath.Clean(target)
 	if !strings.HasPrefix(target+string(filepath.Separator), root+string(filepath.Separator)) {
@@ -61,6 +61,13 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if s.cfg.WorkspaceRoot != "" {
+		dir, err = ConfineToDir(s.cfg.WorkspaceRoot, dir)
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -139,6 +146,14 @@ func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.cfg.WorkspaceRoot != "" {
+		dir, err = ConfineToDir(s.cfg.WorkspaceRoot, dir)
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Reject if the directory does not already exist — we do not create directories.
 	if info, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
@@ -190,11 +205,20 @@ func (s *Server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "workspaceDir is required", http.StatusBadRequest)
 		return
 	}
-	path, err := confineToDir(rawRoot, rawPath)
+	path, err := ConfineToDir(rawRoot, rawPath)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusForbidden)
 		return
 	}
+
+	if s.cfg.WorkspaceRoot != "" {
+		path, err = ConfineToDir(s.cfg.WorkspaceRoot, path)
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	}
+
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -229,11 +253,20 @@ func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "workspaceDir is required", http.StatusBadRequest)
 		return
 	}
-	path, err := confineToDir(body.WorkspaceDir, body.Path)
+	path, err := ConfineToDir(body.WorkspaceDir, body.Path)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusForbidden)
 		return
 	}
+
+	if s.cfg.WorkspaceRoot != "" {
+		path, err = ConfineToDir(s.cfg.WorkspaceRoot, path)
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	}
+
 	if err := os.WriteFile(path, []byte(body.Content), 0o644); err != nil {
 		logging.FromContext(r.Context()).Error("file save error",
 			slog.String("path", path),

@@ -450,6 +450,218 @@ func TestHandleWorkspaceCreate_NonExistentDir(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ConfineToDir — pure function tests
+// ---------------------------------------------------------------------------
+
+// TestConfineToDir verifies the path confinement helper used by all handlers
+// and the agent. It must accept valid sub-paths and reject traversal attempts.
+func TestConfineToDir(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	inside := filepath.Join(root, "sub", "dir")
+	outside := filepath.Join(root, "..", "outside")
+
+	tests := []struct {
+		name    string
+		root    string
+		target  string
+		wantErr bool
+	}{
+		{name: "direct child", root: root, target: filepath.Join(root, "foo"), wantErr: false},
+		{name: "nested child", root: root, target: inside, wantErr: false},
+		{name: "root itself", root: root, target: root, wantErr: false},
+		{name: "outside via ..", root: root, target: outside, wantErr: true},
+		{name: "absolute escape", root: root, target: "/etc/passwd", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ConfineToDir(tc.root, tc.target)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ConfineToDir(%q, %q) error = %v, wantErr %v", tc.root, tc.target, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WorkspaceRoot confinement — handler tests
+// ---------------------------------------------------------------------------
+
+// newTestServerWithRoot builds a *Server with WorkspaceRoot set.
+func newTestServerWithRoot(root string) *Server {
+	return &Server{
+		agent: nil,
+		cfg:   &Config{WorkspaceRoot: root},
+		log:   slog.Default(),
+	}
+}
+
+// TestHandleWorkspace_WorkspaceRootConfinement verifies that GET /api/workspace
+// rejects a dir outside WorkspaceRoot with 400 and accepts one inside it.
+func TestHandleWorkspace_WorkspaceRootConfinement(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	allowed := filepath.Join(root, "allowed")
+	mustMkdir(t, allowed)
+
+	s := newTestServerWithRoot(root)
+
+	t.Run("inside root — allowed", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+allowed, nil)
+		w := httptest.NewRecorder()
+		s.handleWorkspace(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("outside root — rejected", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir=/tmp", nil)
+		w := httptest.NewRecorder()
+		s.handleWorkspace(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("traversal path — rejected", func(t *testing.T) {
+		t.Parallel()
+		traversal := allowed + "/../../etc"
+		req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+traversal, nil)
+		w := httptest.NewRecorder()
+		s.handleWorkspace(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("no workspace root — no confinement", func(t *testing.T) {
+		t.Parallel()
+		s2 := newTestServer() // WorkspaceRoot is empty
+		req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+allowed, nil)
+		w := httptest.NewRecorder()
+		s2.handleWorkspace(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200 with no root set, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+// TestHandleWorkspaceCreate_WorkspaceRootConfinement verifies that
+// POST /api/workspace/create rejects a dir outside WorkspaceRoot.
+func TestHandleWorkspaceCreate_WorkspaceRootConfinement(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	allowed := filepath.Join(root, "ws")
+	mustMkdir(t, allowed)
+
+	s := newTestServerWithRoot(root)
+
+	t.Run("inside root — allowed", func(t *testing.T) {
+		t.Parallel()
+		body := `{"dir":"` + allowed + `"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/workspace/create", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.handleWorkspaceCreate(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("outside root — rejected", func(t *testing.T) {
+		t.Parallel()
+		body := `{"dir":"/tmp"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/workspace/create", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.handleWorkspaceCreate(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+// TestHandleFileRead_WorkspaceRootConfinement verifies that GET /api/file
+// rejects a path whose workspaceDir falls outside WorkspaceRoot.
+func TestHandleFileRead_WorkspaceRootConfinement(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	allowed := filepath.Join(root, "ws")
+	mustMkdir(t, allowed)
+	mustWriteFile(t, filepath.Join(allowed, "main.tf"), "# tf")
+
+	s := newTestServerWithRoot(root)
+
+	t.Run("inside root — allowed", func(t *testing.T) {
+		t.Parallel()
+		url := "/api/file?workspaceDir=" + allowed + "&path=" + filepath.Join(allowed, "main.tf")
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		w := httptest.NewRecorder()
+		s.handleFileRead(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("workspaceDir outside root — rejected", func(t *testing.T) {
+		t.Parallel()
+		url := "/api/file?workspaceDir=/tmp&path=/tmp/main.tf"
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		w := httptest.NewRecorder()
+		s.handleFileRead(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("expected 403, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+// TestHandleFileSave_WorkspaceRootConfinement verifies that PUT /api/file
+// rejects a write whose workspaceDir falls outside WorkspaceRoot.
+func TestHandleFileSave_WorkspaceRootConfinement(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	allowed := filepath.Join(root, "ws")
+	mustMkdir(t, allowed)
+
+	s := newTestServerWithRoot(root)
+
+	t.Run("inside root — allowed", func(t *testing.T) {
+		t.Parallel()
+		body := `{"workspaceDir":"` + allowed + `","path":"` + filepath.Join(allowed, "main.tf") + `","content":"# tf"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/file", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.handleFileSave(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("workspaceDir outside root — rejected", func(t *testing.T) {
+		t.Parallel()
+		body := `{"workspaceDir":"/tmp","path":"/tmp/main.tf","content":"# tf"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/file", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.handleFileSave(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("expected 403, got %d — body: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 //

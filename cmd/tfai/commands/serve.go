@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/cloudwego/eino/callbacks"
@@ -24,6 +25,7 @@ import (
 func NewServeCmd() *cobra.Command {
 	var host string
 	var port int
+	var workspaceRoot string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -115,12 +117,24 @@ Examples:
 
 			pingers := buildPingers(ctx, chatModel, providerCfg, log)
 
+			// Resolve workspace root path if the flag has been provided
+			if cmd.Flags().Changed("workspace-root") {
+				workspaceRoot, err = filepath.Abs(cmd.Flags().Lookup("workspace-root").Value.String())
+				if err != nil {
+					return fmt.Errorf("serve:workspace-root: failed to resolve absolute path of workspace root: %w", err)
+				}
+			} else {
+				log.Debug("workspace-root not set; workspace path confinement disabled")
+				workspaceRoot = ""
+			}
+
 			srv, err := server.New(tfAgent, &server.Config{
-				Host:    host,
-				Port:    port,
-				Logger:  log,
-				Pingers: pingers,
-				APIKey:  os.Getenv("TFAI_API_KEY"),
+				Host:          host,
+				Port:          port,
+				Logger:        log,
+				Pingers:       pingers,
+				APIKey:        os.Getenv("TFAI_API_KEY"),
+				WorkspaceRoot: workspaceRoot,
 			})
 			if err != nil {
 				return fmt.Errorf("serve: failed to create server: %w", err)
@@ -131,6 +145,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&host, "host", "127.0.0.1", "Host address to bind to")
+	cmd.Flags().StringVarP(&workspaceRoot, "workspace-root", "w", "", "Workspace root directory")
 	cmd.Flags().IntVarP(&port, "port", "p", 8080, "TCP port to listen on")
 
 	return cmd
