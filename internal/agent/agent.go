@@ -185,6 +185,8 @@ type Config struct {
 	// trimmed oldest-first to fit. Defaults to budget.DefaultMaxContextTokens
 	// if zero.
 	MaxContextTokens int
+	// WorkspaceRoot is the root directory for the workspace.
+	WorkspaceRoot string
 }
 
 // TerraformAgent wraps the Eino ReAct agent with Terraform-specific behaviour,
@@ -207,6 +209,9 @@ type TerraformAgent struct {
 
 	// maxContextTokens is the estimated token budget for the full input context.
 	maxContextTokens int
+
+	// workspaceRoot is the root directory for the workspace.
+	workspaceRoot string
 }
 
 // New constructs a TerraformAgent from the provided Config.
@@ -249,6 +254,7 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 		history:          cfg.History,
 		historyDepth:     depth,
 		maxContextTokens: maxCtx,
+		workspaceRoot:    cfg.WorkspaceRoot,
 	}, nil
 }
 
@@ -293,6 +299,13 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 		}
 	}
 
+	if a.workspaceRoot != "" {
+		root := filepath.Clean(a.workspaceRoot)
+		target := filepath.Clean(workspaceDir)
+		if !strings.HasPrefix(target+string(filepath.Separator), root+string(filepath.Separator)) {
+			return false, fmt.Errorf("agent: workspaceDir %q is outside permitted root %q", workspaceDir, a.workspaceRoot)
+		}
+	}
 	// If a workspace directory was provided, attempt to parse the buffered output
 	// as a terraform_generate JSON envelope. On success, write files to disk and
 	// stream the human-readable summary to the caller. On failure (regular text

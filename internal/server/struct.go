@@ -38,6 +38,9 @@ type Config struct {
 	// APIKey is the Bearer token required on all protected /api/* routes.
 	// If empty, authentication is disabled (development mode).
 	APIKey string
+	// WorkspaceRoot is the root directory for workspace operations.
+	// If empty, the server will use the current working directory.
+	WorkspaceRoot string
 	// ChatTimeout is the maximum duration for a single /api/chat request,
 	// including LLM streaming. Defaults to 5 minutes if zero.
 	ChatTimeout time.Duration
