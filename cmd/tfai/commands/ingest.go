@@ -16,6 +16,8 @@ import (
 // documentation ingestion pipeline to populate the RAG vector store.
 func NewIngestCmd() *cobra.Command {
 	var provider string
+	var framework string
+	var docType string
 	var urls []string
 
 	cmd := &cobra.Command{
@@ -34,16 +36,24 @@ Required environment variables:
   MODEL_PROVIDER       Embedding backend: ollama, openai, azure (default: ollama)
   EMBEDDING_*          Provider-specific overrides (see README)
 
+Metadata flags (--provider, --framework, --doc-type) are optional. When omitted,
+metadata is auto-inferred from the URL pattern (e.g. registry.terraform.io URLs
+resolve provider and framework automatically). Explicit flags override inference.
+
 Examples:
-  tfai ingest --provider aws --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster
-  tfai ingest --provider azure --url https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/kubernetes_cluster
-  tfai ingest --provider gcp --url https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_cluster`,
+  tfai ingest --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster
+  tfai ingest --url https://atmos.tools/core-concepts/stacks
+  tfai ingest --provider aws --framework terraform --url https://example.com/custom-aws-doc`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			log := slog.Default()
 
 			if len(urls) == 0 {
 				return fmt.Errorf("ingest: at least one --url is required")
+			}
+
+			if err := embedder.ValidateForRAG(log); err != nil {
+				return fmt.Errorf("ingest: %w", err)
 			}
 
 			emb, err := embedder.NewFromEnv()
@@ -77,15 +87,41 @@ Examples:
 				return fmt.Errorf("ingest: failed to create pipeline: %w", err)
 			}
 
+			providerSet := cmd.Flags().Changed("provider")
+			frameworkSet := cmd.Flags().Changed("framework")
+			docTypeSet := cmd.Flags().Changed("doc-type")
+
 			sources := make([]ingestion.Source, 0, len(urls))
 			for _, u := range urls {
-				sources = append(sources, ingestion.Source{
-					URL:      u,
-					Provider: provider,
-				})
+				inferred := ingestion.InferMetadata(u)
+
+				src := ingestion.Source{URL: u}
+				if providerSet {
+					src.Provider = provider
+				} else {
+					src.Provider = inferred.Provider
+				}
+				if frameworkSet {
+					src.Framework = framework
+				} else {
+					src.Framework = inferred.Framework
+				}
+				if docTypeSet {
+					src.DocType = docType
+				} else {
+					src.DocType = inferred.DocType
+				}
+
+				log.Info("source metadata",
+					slog.String("url", u),
+					slog.String("provider", src.Provider),
+					slog.String("framework", src.Framework),
+					slog.String("doc_type", src.DocType),
+				)
+				sources = append(sources, src)
 			}
 
-			log.Info("starting ingestion", slog.Int("sources", len(sources)), slog.String("provider", provider))
+			log.Info("starting ingestion", slog.Int("sources", len(sources)))
 
 			if err := pipeline.Ingest(ctx, sources, func(msg string) {
 				log.Info(msg)
@@ -99,6 +135,8 @@ Examples:
 	}
 
 	cmd.Flags().StringVarP(&provider, "provider", "p", "generic", "Cloud provider label (aws, azure, gcp, generic)")
+	cmd.Flags().StringVarP(&framework, "framework", "f", "terraform", "IaC framework label (terraform, atmos, terragrunt, cdktf)")
+	cmd.Flags().StringVarP(&docType, "doc-type", "d", "reference", "Documentation type (reference, tutorial, guide, api, changelog)")
 	cmd.Flags().StringArrayVarP(&urls, "url", "u", nil, "Documentation URL to ingest (repeatable)")
 
 	return cmd

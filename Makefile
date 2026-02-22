@@ -140,24 +140,45 @@ gate: ## Run full pre-commit gate (build + vet + lint + vulncheck + test + binar
 	@echo "── gate: PASS ───────────────────────────────────────────"
 
 # ── Ingestion ─────────────────────────────────────────────────────────────────
+# Metadata (provider, framework, doc_type) is auto-inferred from the URL.
+# Pass --provider / --framework / --doc-type explicitly only to override.
+
 .PHONY: ingest-aws
 ingest-aws: build ## Ingest core AWS Terraform provider docs into Qdrant
-	./bin/$(BINARY) ingest --provider aws \
+	./bin/$(BINARY) ingest \
 	  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster \
 	  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc \
-	  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role
+	  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role \
+	  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket \
+	  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_function
 
 .PHONY: ingest-azure
 ingest-azure: build ## Ingest core Azure Terraform provider docs into Qdrant
-	./bin/$(BINARY) ingest --provider azure \
+	./bin/$(BINARY) ingest \
 	  --url https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/kubernetes_cluster \
-	  --url https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/virtual_network
+	  --url https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/virtual_network \
+	  --url https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_account \
+	  --url https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/linux_virtual_machine
 
 .PHONY: ingest-gcp
 ingest-gcp: build ## Ingest core GCP Terraform provider docs into Qdrant
-	./bin/$(BINARY) ingest --provider gcp \
+	./bin/$(BINARY) ingest \
 	  --url https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/container_cluster \
-	  --url https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_network
+	  --url https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_network \
+	  --url https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket \
+	  --url https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloudfunctions_function
+
+.PHONY: ingest-atmos
+ingest-atmos: build ## Ingest Atmos framework docs into Qdrant
+	./bin/$(BINARY) ingest \
+	  --url https://atmos.tools/core-concepts/components \
+	  --url https://atmos.tools/core-concepts/stacks \
+	  --url https://atmos.tools/core-concepts/stacks/inheritance \
+	  --url https://atmos.tools/cli/commands/atmos-terraform \
+	  --url https://atmos.tools/quick-start/configure-cli
+
+.PHONY: ingest-all
+ingest-all: ingest-aws ingest-azure ingest-gcp ingest-atmos ## Ingest all provider and framework docs into Qdrant
 # ── fs ───────────────────────────────────────────────────────────────────────
 # Pattern rule: the % is a wildcard stem that matches anything after "fs/".
 # $* expands to the matched stem at recipe time, so "make fs/my-eks-cluster"
