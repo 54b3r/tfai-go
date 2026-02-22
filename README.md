@@ -20,14 +20,18 @@ Generate infrastructure code, diagnose failures, and get expert guidance across 
 ## Quick Start
 
 ```bash
-# 1. Copy and configure your environment
-cp .env.example .env
-# Edit .env — set MODEL_PROVIDER and credentials
+# 1. Configure settings (model, server, qdrant, etc.)
+cp config.yaml.example config.yaml
+# Edit config.yaml — set model.provider and other non-secret settings
 
-# 2. Start supporting services (Qdrant + Langfuse)
+# 2. Add secrets (API keys only)
+cp .env.example .env
+# Edit .env — uncomment and set API keys for your provider
+
+# 3. Start supporting services (Qdrant + Langfuse)
 make up
 
-# 3. Build and run
+# 4. Build and run
 make run
 
 # Or run the full stack in Docker
@@ -35,6 +39,10 @@ make run-docker
 ```
 
 The web UI is available at **http://localhost:8080** after `make run` or `make run-docker`.
+
+> **Configuration model**: `config.yaml` is the primary configuration file
+> (cloud-native standard). `.env` holds secrets only (API keys, tokens).
+> Environment variables override `config.yaml` values when set.
 
 ---
 
@@ -67,32 +75,12 @@ tfai ingest --provider aws --framework terraform --doc-type guide \
 
 ---
 
-## Model Provider Configuration
+## Configuration
 
-Set `MODEL_PROVIDER` to select your inference backend. Each provider uses its own
-native credential env vars — no homogenised `MODEL_API_KEY` abstraction.
-
-| Provider | `MODEL_PROVIDER` | Required env vars |
-|---|---|---|
-| **Ollama** (local) | `ollama` | `OLLAMA_HOST` (default: `http://localhost:11434`), `OLLAMA_MODEL` |
-| **OpenAI** | `openai` | `OPENAI_API_KEY`, `OPENAI_MODEL` |
-| **Azure OpenAI** | `azure` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` |
-| **AWS Bedrock** | `bedrock` | AWS credential chain (`AWS_PROFILE` / env / instance role), `BEDROCK_MODEL_ID`, `AWS_REGION` |
-| **Google Gemini** | `gemini` | `GOOGLE_API_KEY`, `GEMINI_MODEL` |
-
-Optional shared tuning: `MODEL_MAX_TOKENS` (default: 4096), `MODEL_TEMPERATURE` (default: 0.2).
-
-See `config.yaml.example` for the full YAML reference.
-
----
-
-## YAML Configuration
-
-tfai supports a layered configuration system:
+tfai uses **YAML as the primary configuration format** (the cloud-native standard).
+Secrets (API keys, tokens) go in `.env` or environment variables — never in YAML.
 
 **Precedence**: env vars > YAML file > built-in defaults
-
-Environment variables **always win** — existing workflows are unaffected.
 
 ### Config file search order
 
@@ -101,9 +89,7 @@ Environment variables **always win** — existing workflows are unaffected.
 3. `~/.tfai/config.yaml`
 4. `./tfai.yaml`
 
-If no file is found, tfai runs entirely from env vars (backwards compatible).
-
-### Example
+### Example `config.yaml`
 
 ```yaml
 model:
@@ -123,15 +109,42 @@ qdrant:
   port: 6334
   collection: my-docs
 
+server:
+  host: 127.0.0.1
+  port: 8080
+
 logging:
-  level: debug
-  format: text
+  level: info
+  format: json
 ```
 
-> **Security**: Keep API keys in env vars, not the YAML file. The file is for
-> non-secret operational config (provider, model, host, port, etc.).
+See `config.yaml.example` for the full annotated reference with all sections.
 
-See `config.yaml.example` for the complete reference with all sections.
+### Model providers
+
+Set `model.provider` in `config.yaml` to select your inference backend:
+
+| Provider | `model.provider` | Config section | Secret (`.env`) |
+|---|---|---|---|
+| **Ollama** (local) | `ollama` | `model.ollama.host`, `model.ollama.model` | — |
+| **OpenAI** | `openai` | `model.openai.model` | `OPENAI_API_KEY` |
+| **Azure OpenAI** | `azure` | `model.azure.endpoint`, `model.azure.deployment` | `AZURE_OPENAI_API_KEY` |
+| **AWS Bedrock** | `bedrock` | `model.bedrock.region`, `model.bedrock.model_id` | AWS credential chain |
+| **Google Gemini** | `gemini` | `model.gemini.model` | `GOOGLE_API_KEY` |
+
+### Secrets
+
+API keys belong in `.env` (or injected as environment variables in CI/CD),
+**never** in `config.yaml`:
+
+```bash
+# .env — secrets only, never committed
+OPENAI_API_KEY=sk-...
+AZURE_OPENAI_API_KEY=...
+TFAI_API_KEY=...          # enables Bearer auth on API endpoints
+```
+
+Environment variables override any value in `config.yaml`.
 
 ---
 
@@ -370,12 +383,14 @@ See `.windsurf/rules/` for the full coding, SRE, and security policy.
 
 | Document | Description |
 |---|---|
+| [docs/BACKSTAGE.md](docs/BACKSTAGE.md) | Backstage integration — catalog registration, scaffolder template, deployment guide |
 | [docs/TESTING.md](docs/TESTING.md) | Manual testing & smoke test guide — step-by-step verification of every feature |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Unified 3-tier roadmap (Immediate → Medium → Complete) |
 | [docs/REVIEW.md](docs/REVIEW.md) | Full codebase review and architecture scorecard |
 | [docs/SRE_ASSESSMENT.md](docs/SRE_ASSESSMENT.md) | SRE readiness assessment — profiling, security, logging, observability |
 | [docs/STRATEGIC_ANALYSIS.md](docs/STRATEGIC_ANALYSIS.md) | Strategic analysis — accelerator vs product, MCP evaluation |
 | [config.yaml.example](config.yaml.example) | Full YAML configuration reference with all sections |
+| [catalog-info.yaml](catalog-info.yaml) | Backstage catalog entity descriptor (Component + API + Resource) |
 | [.env.example](.env.example) | Environment variable reference with per-provider examples |
 
 ---
