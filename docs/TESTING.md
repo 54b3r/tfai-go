@@ -1074,6 +1074,88 @@ Error: ingest: failed to connect to Qdrant at localhost:19999: ...
 
 ---
 
+### 15.10 Framework RAG Showcase — Atmos vs Vanilla Terraform
+
+This section demonstrates the pipeline's core value: grounding the LLM in your
+actual documentation rather than its training-data snapshot. Atmos is the test
+case because it is real, actively maintained, and niche enough that most LLMs
+have thin or stale training data — making the RAG delta obvious.
+
+> **Prerequisite:** Steps 15.1–15.4 are complete (Qdrant running, embedder configured, at least one vanilla Terraform doc already ingested).
+
+#### A. Ingest Atmos documentation
+
+```bash
+./bin/tfai ingest --provider atmos \
+  --url https://atmos.tools/core-concepts/components \
+  --url https://atmos.tools/core-concepts/stacks \
+  --url https://atmos.tools/core-concepts/stacks/inheritance \
+  --url https://atmos.tools/cli/commands/atmos-terraform
+
+# Verify points increased
+curl -s http://localhost:6333/collections/tfai-docs | jq '.result.points_count'
+```
+
+#### B. Control question — LLM already knows this cold
+
+```bash
+./bin/tfai ask "what does the terraform required_providers block do and why do you need it?"
+```
+
+**Expected:** A confident, accurate answer regardless of RAG. The LLM has seen
+this thousands of times in training. RAG may fire but the chunks won't change
+the answer meaningfully. This is your **control baseline**.
+
+#### C. RAG-dependent question — with RAG enabled
+
+```bash
+./bin/tfai ask "in Atmos, how does component inheritance work and what is the difference between vars, settings, and env in a stack manifest?"
+```
+
+**What to look for:**
+
+| Signal | Expected with RAG |
+|---|---|
+| `vars` vs `settings` vs `env` | Should cite the exact Atmos schema — `vars` are Terraform input variables, `settings` are Atmos-internal metadata, `env` are OS env vars passed to the process |
+| Inheritance chain | Should describe the specific Atmos import/inheritance model — base stacks, mixins, catalog patterns |
+| YAML structure | Should show correct Atmos stack manifest structure matching the ingested docs |
+| Log line | `rag: retriever ready` visible in stderr |
+
+#### D. Same question — without RAG (comparison)
+
+```bash
+unset QDRANT_HOST
+./bin/tfai ask "in Atmos, how does component inheritance work and what is the difference between vars, settings, and env in a stack manifest?"
+export QDRANT_HOST=localhost
+```
+
+**Expected without RAG:** Vague, generic, or hallucinated answer. The LLM may
+invent plausible-sounding but wrong field names or conflate Atmos with
+Terragrunt. Compare this side-by-side with the RAG-enabled answer from step C.
+
+#### E. Sharpest signal — version-specific question
+
+```bash
+./bin/tfai ask "what is the atmos.yaml CLI config file and what are the required top-level keys?"
+```
+
+`atmos.yaml` has a specific schema that changes between versions. Without RAG the
+LLM will either refuse or invent plausible-looking but incorrect field names.
+With RAG it should cite the actual keys from the ingested page.
+
+#### What this demonstrates
+
+The pipeline's value in one sentence: **it grounds the LLM in your actual
+documentation version, not its training-data snapshot.** For frameworks like Atmos
+that move fast, or for internal modules and custom providers the LLM has never
+seen, RAG is the difference between a useful answer and a confident hallucination.
+
+> **Extending to other frameworks:** The same pattern works for Terragrunt, CDK
+> for Terraform, Pulumi, Spacelift, Env0, or any internal tooling. Ingest the
+> docs, ask a framework-specific question, compare with and without RAG.
+
+---
+
 ### Full environment teardown
 
 ```bash
