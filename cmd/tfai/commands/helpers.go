@@ -32,15 +32,19 @@ func buildPingers(_ context.Context, chatModel model.ToolCallingChatModel, cfg *
 	if qdrantHost != "" {
 		client, err := qdrant.NewClient(&qdrant.Config{
 			Host: qdrantHost,
-			Port: 6334,
+			Port: getEnvInt("QDRANT_PORT", 6334),
 		})
-		if err != nil {
+		if err != nil || client == nil {
 			log.Warn("readiness: failed to create qdrant client, skipping probe",
 				slog.String("host", qdrantHost),
 				slog.Any("error", err),
 			)
 		} else {
 			pingers = append(pingers, server.NewQdrantPinger(client))
+			log.Info("readiness: qdrant probe registered",
+				slog.String("host", qdrantHost),
+				slog.Int("port", getEnvInt("QDRANT_PORT", 6334)),
+			)
 		}
 	}
 
