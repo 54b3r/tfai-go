@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -52,21 +53,26 @@ func buildPingers(_ context.Context, chatModel model.ToolCallingChatModel, cfg *
 }
 
 // buildRetriever constructs a rag.Retriever when QDRANT_HOST is set in the
-// environment. Returns (nil, noop) when Qdrant is not configured — the agent
-// treats a nil retriever as "RAG disabled". The returned closer must be called
-// (e.g. via defer) to release the underlying gRPC connection.
-func buildRetriever(ctx context.Context, log *slog.Logger) (rag.Retriever, func()) {
+// environment. Returns (nil, noop, nil) when Qdrant is not configured — the
+// agent treats a nil retriever as "RAG disabled". Returns a non-nil error when
+// QDRANT_HOST is set but the embedder configuration is invalid, so callers can
+// fail fast with a clear message. The returned closer must be called (e.g. via
+// defer) to release the underlying gRPC connection.
+func buildRetriever(ctx context.Context, log *slog.Logger) (rag.Retriever, func(), error) {
 	noop := func() {}
 
 	qdrantHost := os.Getenv("QDRANT_HOST")
 	if qdrantHost == "" {
-		return nil, noop
+		return nil, noop, nil
+	}
+
+	if err := embedder.ValidateForRAG(log); err != nil {
+		return nil, noop, err
 	}
 
 	emb, err := embedder.NewFromEnv()
 	if err != nil {
-		log.Warn("rag: failed to initialise embedder, RAG disabled", slog.Any("error", err))
-		return nil, noop
+		return nil, noop, fmt.Errorf("rag: failed to initialise embedder: %w", err)
 	}
 
 	qdrantPort := getEnvInt("QDRANT_PORT", 6334)
@@ -82,18 +88,13 @@ func buildRetriever(ctx context.Context, log *slog.Logger) (rag.Retriever, func(
 		UseTLS:     os.Getenv("QDRANT_TLS") == "true",
 	})
 	if err != nil {
-		log.Warn("rag: failed to connect to Qdrant, RAG disabled",
-			slog.String("host", qdrantHost),
-			slog.Any("error", err),
-		)
-		return nil, noop
+		return nil, noop, fmt.Errorf("rag: failed to connect to Qdrant at %s:%d: %w", qdrantHost, qdrantPort, err)
 	}
 
 	retriever, err := rag.NewRetriever(emb, qstore, getEnvInt("RAG_TOP_K", 5))
 	if err != nil {
-		log.Warn("rag: failed to create retriever, RAG disabled", slog.Any("error", err))
 		_ = qstore.Close()
-		return nil, noop
+		return nil, noop, fmt.Errorf("rag: failed to create retriever: %w", err)
 	}
 
 	log.Info("rag: retriever ready",
@@ -101,7 +102,7 @@ func buildRetriever(ctx context.Context, log *slog.Logger) (rag.Retriever, func(
 		slog.Int("port", qdrantPort),
 		slog.String("collection", collection),
 	)
-	return retriever, func() { _ = qstore.Close() }
+	return retriever, func() { _ = qstore.Close() }, nil
 }
 
 // buildTools constructs the full list of Eino-compatible Terraform tools to

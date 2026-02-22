@@ -48,7 +48,10 @@ Examples:
 
 			agentTools := buildTools(runner)
 
-			retriever, closeRetriever := buildRetriever(ctx, slog.Default())
+			retriever, closeRetriever, err := buildRetriever(ctx, slog.Default())
+			if err != nil {
+				return fmt.Errorf("generate: %w", err)
+			}
 			defer closeRetriever()
 
 			tfAgent, err := agent.New(ctx, &agent.Config{
