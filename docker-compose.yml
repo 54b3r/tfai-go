@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ── TF-AI application ────────────────────────────────────────────────────────
   tfai:
@@ -52,9 +50,9 @@ services:
       - "3000:3000"
     environment:
       - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
-      - NEXTAUTH_SECRET=change-me-in-production
-      - NEXTAUTH_URL=http://localhost:3000
-      - SALT=change-me-in-production
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET:?LANGFUSE_NEXTAUTH_SECRET must be set in .env}
+      - NEXTAUTH_URL=${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      - SALT=${LANGFUSE_SALT:?LANGFUSE_SALT must be set in .env}
     depends_on:
       langfuse-db:
         condition: service_healthy
@@ -66,9 +64,9 @@ services:
     image: postgres:16-alpine
     container_name: tfai-langfuse-db
     environment:
-      - POSTGRES_USER=langfuse
-      - POSTGRES_PASSWORD=langfuse
-      - POSTGRES_DB=langfuse
+      - POSTGRES_USER=${LANGFUSE_DB_USER:-langfuse}
+      - POSTGRES_PASSWORD=${LANGFUSE_DB_PASSWORD:?LANGFUSE_DB_PASSWORD must be set in .env}
+      - POSTGRES_DB=${LANGFUSE_DB_NAME:-langfuse}
     volumes:
       - langfuse-db-data:/var/lib/postgresql/data
     healthcheck:

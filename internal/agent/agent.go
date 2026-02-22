@@ -269,6 +269,11 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 		return filesWritten, fmt.Errorf("agent: stream failed: %w", err)
 	}
 	defer sr.Close()
+
+	// maxResponseBytes caps the in-memory accumulation of the LLM response to
+	// prevent unbounded memory growth from a runaway or adversarial model.
+	const maxResponseBytes = 4 << 20 // 4 MiB
+
 	var msgBuf strings.Builder
 	for {
 		msg, err := sr.Recv()
@@ -279,11 +284,13 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 			return filesWritten, fmt.Errorf("agent: stream receive error: %w", err)
 		}
 		if msg != nil && msg.Content != "" {
+			if msgBuf.Len()+len(msg.Content) > maxResponseBytes {
+				return filesWritten, fmt.Errorf("agent: response exceeded maximum size (%d bytes)", maxResponseBytes)
+			}
 			if _, err := fmt.Fprint(&msgBuf, msg.Content); err != nil {
 				return filesWritten, fmt.Errorf("agent: write error: %w", err)
 			}
 		}
-
 	}
 
 	// If a workspace directory was provided, attempt to parse the buffered output
@@ -394,12 +401,25 @@ func (a *TerraformAgent) buildMessages(ctx context.Context, userMessage, workspa
 	return result, nil
 }
 
-// buildWorkspaceContext reads all .tf files in the workspace directory and
+// Limits applied when building workspace context to prevent OOM on large repos.
+const (
+	// maxWorkspaceFiles is the maximum number of .tf files included in context.
+	maxWorkspaceFiles = 50
+	// maxWorkspaceFileBytes is the maximum size of a single .tf file included.
+	maxWorkspaceFileBytes = 100 * 1024 // 100 KiB
+	// maxWorkspaceTotalBytes is the maximum total size of all included files.
+	maxWorkspaceTotalBytes = 1024 * 1024 // 1 MiB
+)
+
+// buildWorkspaceContext reads .tf files in the workspace directory and
 // formats them into a system message so the LLM can inspect and modify
 // existing Terraform configurations. Returns an empty string if the directory
 // contains no .tf files. Non-fatal errors (unreadable files) are skipped.
+// File count, per-file size, and total size are capped to prevent OOM.
 func buildWorkspaceContext(workspaceDir string) (string, error) {
 	var sb strings.Builder
+	fileCount := 0
+	totalBytes := 0
 
 	err := filepath.WalkDir(workspaceDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -407,6 +427,19 @@ func buildWorkspaceContext(workspaceDir string) (string, error) {
 		}
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".tf") {
 			return nil
+		}
+		if fileCount >= maxWorkspaceFiles {
+			return fs.SkipAll
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if info.Size() > maxWorkspaceFileBytes {
+			return nil // skip oversized files silently
+		}
+		if totalBytes+int(info.Size()) > maxWorkspaceTotalBytes {
+			return fs.SkipAll
 		}
 		rel, err := filepath.Rel(workspaceDir, path)
 		if err != nil {
@@ -417,6 +450,8 @@ func buildWorkspaceContext(workspaceDir string) (string, error) {
 			return nil // skip unreadable files
 		}
 		fmt.Fprintf(&sb, "### %s\n```hcl\n%s\n```\n\n", rel, content)
+		fileCount++
+		totalBytes += len(content)
 		return nil
 	})
 	if err != nil {
