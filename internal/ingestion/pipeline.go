@@ -27,6 +27,14 @@ type Source struct {
 
 	// ResourceType is the Terraform resource type this doc covers (e.g. "aws_eks_cluster").
 	ResourceType string
+
+	// Framework is the IaC framework this doc belongs to (e.g. terraform, atmos, terragrunt, cdktf).
+	// Used as a Qdrant payload field to enable framework-scoped retrieval.
+	Framework string
+
+	// DocType classifies the kind of documentation (reference, tutorial, guide, api, changelog).
+	// Used as a Qdrant payload field to enable doc-type-scoped retrieval.
+	DocType string
 }
 
 // Config holds the configuration for the ingestion pipeline.
@@ -136,6 +144,8 @@ func (p *Pipeline) Ingest(ctx context.Context, sources []Source, progress func(m
 				Metadata: map[string]string{
 					"provider":      src.Provider,
 					"resource_type": src.ResourceType,
+					"framework":     src.Framework,
+					"doc_type":      src.DocType,
 					"chunk_index":   fmt.Sprintf("%d", i),
 				},
 			}

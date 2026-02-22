@@ -57,9 +57,12 @@ tfai diagnose --dir ./infra/eks
 # Start the web UI server
 tfai serve --port 8080
 
-# Ingest provider documentation into the RAG store
-tfai ingest --provider aws \
-  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster
+# Ingest provider documentation into the RAG store (metadata auto-inferred from URL)
+tfai ingest --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster
+
+# Override inferred metadata for custom/internal docs
+tfai ingest --provider aws --framework terraform --doc-type guide \
+  --url https://internal.wiki.example.com/aws-best-practices
 ```
 
 ---
@@ -143,6 +146,8 @@ make install-tools  # Install dev tools (golangci-lint, goimports, govulncheck)
 make ingest-aws     # Ingest core AWS provider docs
 make ingest-azure   # Ingest core Azure provider docs
 make ingest-gcp     # Ingest core GCP provider docs
+make ingest-atmos   # Ingest Atmos framework docs
+make ingest-all     # Ingest all provider + framework docs
 make clean          # Remove build artifacts
 ```
 
@@ -192,6 +197,77 @@ Exceeded requests receive `429 Too Many Requests` with a `Retry-After: 1` header
   ]
 }
 ```
+
+---
+
+## RAG Ingestion & Metadata
+
+### Auto-inferred metadata
+
+When you run `tfai ingest --url <URL>`, the pipeline automatically infers
+`provider`, `framework`, and `doc_type` from the URL pattern. This metadata is
+stored as Qdrant payload fields on every chunk, enabling filtered retrieval.
+
+```bash
+# These two commands produce identical metadata — the second infers it:
+tfai ingest --provider aws --framework terraform --doc-type reference \
+  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster
+
+tfai ingest \
+  --url https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster
+# → provider=aws, framework=terraform, doc_type=reference
+```
+
+Explicit flags (`--provider`, `--framework`, `--doc-type`) **always override**
+inferred values. Use them for custom or internal documentation URLs that don't
+match any known pattern.
+
+### Supported URL patterns
+
+| URL host | Example path | Inferred framework | Inferred provider | Inferred doc_type |
+|---|---|---|---|---|
+| `registry.terraform.io` | `/providers/hashicorp/aws/.../resources/...` | `terraform` | `aws` | `reference` |
+| `registry.terraform.io` | `/providers/hashicorp/azurerm/.../guides/...` | `terraform` | `azure` | `guide` |
+| `registry.terraform.io` | `/providers/hashicorp/google/.../data-sources/...` | `terraform` | `gcp` | `reference` |
+| `atmos.tools` | `/core-concepts/...` | `atmos` | `atmos` | `reference` |
+| `atmos.tools` | `/quick-start/...` | `atmos` | `atmos` | `tutorial` |
+| `atmos.tools` | `/integrations/...` | `atmos` | `atmos` | `guide` |
+| `developer.hashicorp.com` | `/terraform/tutorials/...` | `terraform` | `generic` | `tutorial` |
+| `developer.hashicorp.com` | `/terraform/language/...` | `terraform` | `generic` | `reference` |
+| `terragrunt.gruntwork.io` | `/docs/...` | `terragrunt` | `generic` | `reference` |
+| *(unknown)* | — | `terraform` | `generic` | `reference` |
+
+### Provider alias mapping
+
+Terraform Registry provider names are mapped to canonical short labels:
+
+| Registry name | Canonical label |
+|---|---|
+| `aws` | `aws` |
+| `azurerm`, `azuread` | `azure` |
+| `google`, `google-beta` | `gcp` |
+| `kubernetes`, `helm` | `kubernetes` |
+| `random`, `null`, `local`, `tls`, ... | `generic` |
+
+Unknown provider names are used as-is (e.g. `datadog` → `datadog`).
+
+### Adding a new URL pattern
+
+To support a new documentation source:
+
+1. **Edit** `internal/ingestion/metadata.go`
+2. **Add a case** in `InferMetadata()` matching the new host/path
+3. **Add a test** in `internal/ingestion/metadata_test.go`
+4. **Run** `make gate` to verify
+
+For new Terraform Registry providers, just add an entry to `registryProviderAliases`
+in `metadata.go` — no other code changes needed.
+
+### Future: LLM-based classification
+
+For URLs that don't match any pattern, a future `--classify` flag will invoke a
+lightweight model to infer metadata from the page content. This is planned but
+not yet implemented. Until then, pass explicit flags for custom URLs.
 
 ---
 
