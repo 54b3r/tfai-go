@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strconv"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -63,4 +64,24 @@ func buildTools(runner tftools.Runner) []tool.BaseTool {
 	}
 
 	return toolList
+}
+
+// getEnvOrDefault returns the value of the named environment variable, or
+// fallback if the variable is unset or empty.
+func getEnvOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// getEnvInt returns the integer value of the named environment variable, or
+// fallback if the variable is unset, empty, or not parseable as an integer.
+func getEnvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
+	return fallback
 }
