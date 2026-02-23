@@ -90,6 +90,16 @@ func New(tfAgent *agent.TerraformAgent, cfg *Config) (*Server, error) {
 		metrics: newServerMetrics(cfg.MetricsRegistry),
 	}
 
+	cfg.Logger.Info("server configured",
+		slog.String("host", cfg.Host),
+		slog.Int("port", cfg.Port),
+		slog.Bool("auth_enabled", cfg.APIKey != ""),
+		slog.Float64("rate_limit_rps", float64(cfg.RateLimit)),
+		slog.Int("rate_burst", cfg.RateBurst),
+		slog.Duration("chat_timeout", cfg.ChatTimeout),
+		slog.String("workspace_root", cfg.WorkspaceRoot),
+	)
+
 	mux := http.NewServeMux()
 	// protected wraps a handler with auth, rate-limiting, and HTTP metrics.
 	// /api/health and /api/ready are exempt — they must always respond
@@ -153,6 +163,7 @@ func (s *Server) Start(ctx context.Context) error {
 		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("server: graceful shutdown failed: %w", err)
 		}
+		s.log.Info("server shutdown complete")
 		s.stopRL()
 		return nil
 	}

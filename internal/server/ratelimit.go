@@ -19,9 +19,9 @@ const defaultRateLimit = 10
 // configured. A burst of 20 allows short spikes without immediate rejection.
 const defaultRateBurst = 20
 
-// ipLimiter holds a token-bucket rate limiter and the last time it was seen,
-// used to evict stale entries from the limiter map.
-type ipLimiter struct {
+// ipEntry holds a token-bucket rate limiter and the last time it was seen,
+// used to evict stale entries from the per-IP map.
+type ipEntry struct {
 	// limiter is the per-IP token bucket.
 	limiter *rate.Limiter
 	// lastSeen is updated on every request from this IP for LRU eviction.
@@ -31,10 +31,10 @@ type ipLimiter struct {
 // rateLimiter is an HTTP middleware that enforces a per-IP token-bucket rate
 // limit. Stale IP entries are evicted every minute to bound memory usage.
 type rateLimiter struct {
-	// mu protects the limiters map.
+	// mu protects the ips map.
 	mu sync.Mutex
-	// limiters maps remote IP to its per-IP state.
-	limiters map[string]*ipLimiter
+	// ips maps remote IP to its per-IP state.
+	ips map[string]*ipEntry
 	// rps is the sustained request rate allowed per IP (requests/second).
 	rps rate.Limit
 	// burst is the maximum instantaneous burst per IP.
@@ -48,10 +48,10 @@ type rateLimiter struct {
 // rps and burst are the per-IP token-bucket parameters.
 func newRateLimiter(rps float64, burst int, log *slog.Logger) (*rateLimiter, func()) {
 	rl := &rateLimiter{
-		limiters: make(map[string]*ipLimiter),
-		rps:      rate.Limit(rps),
-		burst:    burst,
-		log:      log,
+		ips:   make(map[string]*ipEntry),
+		rps:   rate.Limit(rps),
+		burst: burst,
+		log:   log,
 	}
 
 	stopCh := make(chan struct{})
@@ -66,10 +66,10 @@ func (rl *rateLimiter) getLimiter(ip string) *rate.Limiter {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	entry, ok := rl.limiters[ip]
+	entry, ok := rl.ips[ip]
 	if !ok {
-		entry = &ipLimiter{limiter: rate.NewLimiter(rl.rps, rl.burst)}
-		rl.limiters[ip] = entry
+		entry = &ipEntry{limiter: rate.NewLimiter(rl.rps, rl.burst)}
+		rl.ips[ip] = entry
 	}
 	entry.lastSeen = time.Now()
 	return entry.limiter
@@ -97,9 +97,9 @@ func (rl *rateLimiter) evict() {
 	defer rl.mu.Unlock()
 
 	cutoff := time.Now().Add(-5 * time.Minute)
-	for ip, entry := range rl.limiters {
+	for ip, entry := range rl.ips {
 		if entry.lastSeen.Before(cutoff) {
-			delete(rl.limiters, ip)
+			delete(rl.ips, ip)
 		}
 	}
 }
