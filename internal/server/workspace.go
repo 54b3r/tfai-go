@@ -184,7 +184,12 @@ func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Files = append(resp.Files, f.name)
 	}
-
+	logging.FromContext(r.Context()).Info("audit: workspace scaffold",
+		slog.String("event", "file_write"),
+		slog.String("path", dir),
+		slog.String("actor", r.RemoteAddr),
+		slog.Int("files", len(resp.Files)),
+	)
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		logging.FromContext(r.Context()).Error("workspace create encode error", slog.Any("error", err))
@@ -275,7 +280,13 @@ func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "failed to save file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	logging.FromContext(r.Context()).Info("file saved", slog.String("path", path))
+	logging.FromContext(r.Context()).Info("audit: file write",
+		slog.String("event", "file_write"),
+		slog.String("path", path),
+		slog.String("actor", r.RemoteAddr),
+		slog.Int("bytes", len(body.Content)),
+	)
+
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"ok":true}`)
 }

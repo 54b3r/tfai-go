@@ -18,7 +18,7 @@ import (
 func requestLogger(base *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := newRequestID()
-
+		w.Header().Set("X-Request-ID", reqID)
 		log := base.With(
 			slog.String("request_id", reqID),
 			slog.String("method", r.Method),
