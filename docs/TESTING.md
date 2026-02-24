@@ -34,7 +34,7 @@
 - **Go 1.26+**: `go version`
 - **golangci-lint**: `golangci-lint --version`
 - **govulncheck**: `govulncheck -version` (install: `go install golang.org/x/vuln/cmd/govulncheck@latest`)
-- **A configured LLM provider** (see `.env.example`). Ollama is easiest for local testing.
+- **A configured LLM provider** (see `config.yaml.example` for settings, `.env.example` for API keys). Ollama is easiest for local testing.
 
 ### Optional (for full stack)
 
@@ -48,9 +48,13 @@
 # Clone and enter the repo
 cd /path/to/tfai-go
 
-# Copy env template and configure your provider
+# 1. Copy and configure settings (non-secrets)
+cp config.yaml.example config.yaml
+# Edit config.yaml — set model.provider and other settings
+
+# 2. Copy and configure secrets (API keys only)
 cp .env.example .env
-# Edit .env — at minimum set MODEL_PROVIDER and model-specific vars
+# Edit .env — uncomment and set API keys for your provider
 
 # Install dev tools (one-time)
 make install-tools
@@ -58,6 +62,10 @@ make install-tools
 # Download Go dependencies
 make deps
 ```
+
+> **Configuration model**: `config.yaml` is the primary configuration file.
+> `.env` holds secrets only (API keys, tokens). Environment variables override
+> `config.yaml` values when set. See README for full details.
 
 ---
 
@@ -125,6 +133,16 @@ make fmt            # format all files (gofmt + goimports)
 
 These tests verify each CLI command works end-to-end. **Requires a configured LLM provider.**
 
+### Global Flags
+
+All commands support these global flags:
+
+| Flag | Description |
+|---|---|
+| `--config <path>` | Path to YAML config file (default: `~/.tfai/config.yaml`) |
+
+The config file search order is: `--config` flag → `$TFAI_CONFIG` env var → `~/.tfai/config.yaml` → `./tfai.yaml`
+
 ### 3.1 Version
 
 ```bash
@@ -133,8 +151,10 @@ These tests verify each CLI command works end-to-end. **Requires a configured LL
 
 **Expected:** Version string with commit hash and build date:
 ```
-tfai v0.18.0 (commit: abc1234, built: 2026-02-20T22:00:00Z)
+tfai v0.29.0 (commit: abc1234, built: 2026-02-24T12:00:00Z)
 ```
+
+> **Note:** Development builds show `-dirty` suffix and additional git info.
 
 ### 3.2 Ask
 
@@ -350,17 +370,26 @@ unset GENERATE_MODEL_PROVIDER GENERATE_MODEL GENERATE_AZURE_DEPLOYMENT GENERATE_
 ### 4.1 Start the server
 
 ```bash
-# Terminal 1: start the server
+# Terminal 1: start the server (uses config.yaml or env vars)
 ./bin/tfai serve
+
+# Or with explicit config file
+./bin/tfai serve --config ./my-config.yaml
+
+# Or with workspace confinement (all file operations restricted to this dir)
+./bin/tfai serve --workspace-root /path/to/terraform/projects
 ```
 
 **Expected log output:**
+```json
+{"time":"...","level":"INFO","msg":"audit: command start","command":"serve",...}
+{"time":"...","level":"INFO","msg":"serve starting","provider":"ollama"}
+{"time":"...","level":"WARN","msg":"auth disabled: TFAI_API_KEY not set — all API routes are unauthenticated"}
+{"time":"...","level":"INFO","msg":"provider initialised","provider":"ollama"}
+{"time":"...","level":"INFO","msg":"server listening","addr":"http://127.0.0.1:8080"}
 ```
-{"level":"INFO","msg":"serve starting","provider":"ollama"}
-{"level":"WARN","msg":"auth disabled: TFAI_API_KEY not set — all API routes are unauthenticated"}
-{"level":"INFO","msg":"provider initialised","provider":"ollama"}
-{"level":"INFO","msg":"server listening","addr":"http://127.0.0.1:8080"}
-```
+
+> **Note:** The first log line is the audit log showing sanitized config state.
 
 ### 4.2 Liveness probe
 
