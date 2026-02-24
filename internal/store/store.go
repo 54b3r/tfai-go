@@ -70,7 +70,7 @@ func DefaultDBPath() (string, error) {
 
 // Open opens (or creates) a SQLiteStore at the given path and runs the schema
 // migration. Use ":memory:" for an in-memory database in tests.
-func Open(path string) (*SQLiteStore, error) {
+func Open(ctx context.Context, path string) (*SQLiteStore, error) {
 	// WAL mode improves concurrent read performance and is safe for single-host use.
 	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000"
 	db, err := sql.Open("sqlite", dsn)
@@ -81,7 +81,7 @@ func Open(path string) (*SQLiteStore, error) {
 	db.SetMaxOpenConns(1)
 
 	s := &SQLiteStore{db: db}
-	if err := s.migrate(); err != nil {
+	if err := s.migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func Open(path string) (*SQLiteStore, error) {
 }
 
 // migrate creates the schema if it does not already exist.
-func (s *SQLiteStore) migrate() error {
+func (s *SQLiteStore) migrate(ctx context.Context) error {
 	const ddl = `
 CREATE TABLE IF NOT EXISTS conversations (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE INDEX IF NOT EXISTS idx_conversations_workspace_created
     ON conversations (workspace, created_at);
 `
-	if _, err := s.db.Exec(ddl); err != nil {
+	if _, err := s.db.ExecContext(ctx, ddl); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
 	return nil
@@ -132,7 +132,7 @@ SELECT role, content, created_at FROM (
 	if err != nil {
 		return nil, fmt.Errorf("store: recent: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var msgs []Message
 	for rows.Next() {

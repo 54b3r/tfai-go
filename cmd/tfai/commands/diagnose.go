@@ -3,13 +3,12 @@ package commands
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/54b3r/tfai-go/internal/agent"
-	"github.com/54b3r/tfai-go/internal/provider"
-	"github.com/54b3r/tfai-go/internal/tools"
 )
 
 // NewDiagnoseCmd constructs the `tfai diagnose` command, which analyses a
@@ -57,21 +56,14 @@ Examples:
 				}
 			}
 
-			chatModel, err := provider.NewFromEnv(ctx)
+			models, agentTools, _, _, err := initCommand(ctx)
 			if err != nil {
-				return fmt.Errorf("diagnose: failed to initialise model provider: %w", err)
+				slog.Error("failed to initialize command", slog.String("command", cmd.Name()), slog.Any("error", err))
+				return fmt.Errorf("diagnose: failed to initialize command: %w", err)
 			}
-
-			runner, err := tools.NewExecRunner()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: %v (plan/state tools unavailable)\n", err)
-				runner = nil
-			}
-
-			agentTools := buildTools(runner)
 
 			tfAgent, err := agent.New(ctx, &agent.Config{
-				ChatModel: chatModel,
+				ChatModel: models.ChatModel,
 				Tools:     agentTools,
 			})
 			if err != nil {
@@ -92,8 +84,8 @@ Examples:
 				return fmt.Errorf("diagnose: provide --plan <file>, pipe plan output via stdin, or specify --dir <workspace>")
 			}
 
-			_, err = tfAgent.Query(ctx, prompt, "", os.Stdout) //nolint:wrapcheck // CLI entry point — error goes directly to cobra
-			return err
+			_, err = tfAgent.Query(ctx, prompt, "", os.Stdout)
+			return err //nolint:wrapcheck // CLI entry point — error goes directly to cobra
 		},
 	}
 

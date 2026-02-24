@@ -37,7 +37,7 @@ See 'tfai --help' for available commands.`,
 			// Load YAML config (env vars always override YAML values).
 			path, err := config.Load(configPath, log)
 			if err != nil {
-				return err
+				return err //nolint:wrapcheck // config error is already descriptive
 			}
 			loadedConfigPath = path
 

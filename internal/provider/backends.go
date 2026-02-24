@@ -16,23 +16,23 @@ import (
 // newOllama constructs a ToolCallingChatModel backed by a local Ollama instance.
 // Reads OLLAMA_HOST (default: http://localhost:11434) and OLLAMA_MODEL.
 func newOllama(ctx context.Context, cfg *Config) (model.ToolCallingChatModel, error) {
-	v, err := einoollama.NewChatModel(ctx, &einoollama.ChatModelConfig{ //nolint:wrapcheck // constructor passthrough
+	v, err := einoollama.NewChatModel(ctx, &einoollama.ChatModelConfig{
 		BaseURL: cfg.Ollama.Host,
 		Model:   cfg.Ollama.Model,
 	})
-	return v, err
+	return v, err //nolint:wrapcheck // constructor passthrough
 }
 
 // newOpenAI constructs a ToolCallingChatModel backed by the OpenAI API.
 // Reads OPENAI_API_KEY and OPENAI_MODEL.
 func newOpenAI(ctx context.Context, cfg *Config) (model.ToolCallingChatModel, error) {
-	v, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{ //nolint:wrapcheck // constructor passthrough
+	v, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
 		Model:       cfg.OpenAI.Model,
 		APIKey:      cfg.OpenAI.APIKey,
 		MaxTokens:   &cfg.Tuning.MaxTokens,
 		Temperature: &cfg.Tuning.Temperature,
 	})
-	return v, err
+	return v, err //nolint:wrapcheck // constructor passthrough
 }
 
 // azureReasoningPrefixes lists deployment name prefixes that identify Azure OpenAI
@@ -69,7 +69,7 @@ func newAzure(ctx context.Context, cfg *Config) (model.ToolCallingChatModel, err
 		reasoning = *cfg.AzureOpenAI.ReasoningOverride
 	}
 
-	azureCfg := &einoopenai.ChatModelConfig{ //nolint:wrapcheck // constructor passthrough
+	azureCfg := &einoopenai.ChatModelConfig{
 		Model:      cfg.AzureOpenAI.Deployment,
 		APIKey:     cfg.AzureOpenAI.APIKey,
 		BaseURL:    cfg.AzureOpenAI.Endpoint,
@@ -88,7 +88,7 @@ func newAzure(ctx context.Context, cfg *Config) (model.ToolCallingChatModel, err
 		azureCfg.MaxTokens = &cfg.Tuning.MaxTokens
 		azureCfg.Temperature = &cfg.Tuning.Temperature
 	}
-	return einoopenai.NewChatModel(ctx, azureCfg)
+	return einoopenai.NewChatModel(ctx, azureCfg) //nolint:wrapcheck // constructor passthrough
 }
 
 // newBedrock constructs a ToolCallingChatModel backed by AWS Bedrock.

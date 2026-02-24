@@ -247,7 +247,7 @@ func Load(explicitPath string, log *slog.Logger) (string, error) {
 		if os.Getenv(m.envKey) != "" {
 			continue // env var already set — do not override
 		}
-		os.Setenv(m.envKey, yamlVal)
+		_ = os.Setenv(m.envKey, yamlVal)
 		applied++
 	}
 

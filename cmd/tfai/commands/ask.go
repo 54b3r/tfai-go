@@ -33,7 +33,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			chatModel, err := provider.NewFromEnv(ctx)
+			models, err := provider.NewFromEnv(ctx)
 			if err != nil {
 				return fmt.Errorf("ask: failed to initialise model provider: %w", err)
 			}
@@ -54,7 +54,7 @@ Examples:
 			defer closeRetriever()
 
 			tfAgent, err := agent.New(ctx, &agent.Config{
-				ChatModel: chatModel,
+				ChatModel: models.ChatModel, // Always Chat model for ask ops
 				Tools:     agentTools,
 				Retriever: retriever,
 			})
@@ -67,8 +67,8 @@ Examples:
 				question = fmt.Sprintf("[workspace: %s]\n\n%s", dir, question)
 			}
 
-			_, err = tfAgent.Query(ctx, question, "", os.Stdout) //nolint:wrapcheck // CLI entry point — error goes directly to cobra
-			return err
+			_, err = tfAgent.Query(ctx, question, "", os.Stdout)
+			return err //nolint:wrapcheck // CLI entry point — error goes directly to cobra
 		},
 	}
 

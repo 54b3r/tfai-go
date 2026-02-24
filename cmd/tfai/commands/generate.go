@@ -6,11 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/cloudwego/eino/components/model"
 	"github.com/spf13/cobra"
 
 	"github.com/54b3r/tfai-go/internal/agent"
-	"github.com/54b3r/tfai-go/internal/provider"
-	"github.com/54b3r/tfai-go/internal/tools"
 )
 
 // NewGenerateCmd constructs the `tfai generate` command, which generates
@@ -33,29 +32,24 @@ Examples:
   tfai generate "GCS bucket with versioning, CMEK, and uniform bucket-level access"`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var llm model.ToolCallingChatModel
+
 			ctx := cmd.Context()
-
-			chatModel, err := provider.NewFromEnv(ctx)
+			models, agentTools, retriever, retrieverClose, err := initCommand(ctx)
 			if err != nil {
-				return fmt.Errorf("generate: failed to initialise model provider: %w", err)
+				slog.Error("failed to initialize command", slog.Any("error", err))
+				return fmt.Errorf("generate: failed to initialize command: %w", err)
 			}
+			defer retrieverClose()
 
-			runner, err := tools.NewExecRunner()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: %v (plan/state tools unavailable)\n", err)
-				runner = nil
+			if models.GenerateModel != nil {
+				llm = models.GenerateModel
+			} else if models.GenerateModel == nil {
+				llm = models.ChatModel
 			}
-
-			agentTools := buildTools(runner)
-
-			retriever, closeRetriever, err := buildRetriever(ctx, slog.Default())
-			if err != nil {
-				return fmt.Errorf("generate: %w", err)
-			}
-			defer closeRetriever()
 
 			tfAgent, err := agent.New(ctx, &agent.Config{
-				ChatModel: chatModel,
+				ChatModel: llm,
 				Tools:     agentTools,
 				Retriever: retriever,
 			})
@@ -82,8 +76,8 @@ Examples:
 				outDir, args[0],
 			)
 
-			_, err = tfAgent.Query(ctx, prompt, outDir, os.Stdout) //nolint:wrapcheck // CLI entry point — error goes directly to cobra
-			return err
+			_, err = tfAgent.Query(ctx, prompt, outDir, os.Stdout)
+			return err //nolint:wrapcheck // CLI entry point — error goes directly to cobra
 		},
 	}
 

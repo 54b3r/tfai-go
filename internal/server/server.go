@@ -244,7 +244,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		s.metrics.chatRequestsTotal.WithLabelValues(outcome).Inc()
 		s.metrics.chatDurationSeconds.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
 		log.Error("chat agent error", slog.Any("error", err))
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		flusher.Flush()
 		return
 	}
@@ -258,10 +258,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if filesWritten {
-		fmt.Fprintf(w, "event: files_written\ndata: true\n\n")
+		_, _ = fmt.Fprintf(w, "event: files_written\ndata: true\n\n")
 	}
 	// Signal stream completion.
-	fmt.Fprintf(w, "event: done\ndata: [DONE]\n\n")
+	_, _ = fmt.Fprintf(w, "event: done\ndata: [DONE]\n\n")
 	flusher.Flush()
 }
 
@@ -308,7 +308,7 @@ func (s *sseWriter) Write(p []byte) (n int, err error) {
 	}
 	buf.WriteString("\n")
 	if _, err = fmt.Fprint(s.w, buf.String()); err != nil {
-		return 0, err
+		return 0, err //nolint:wrapcheck // SSE writer error
 	}
 	s.flusher.Flush()
 	return len(p), nil

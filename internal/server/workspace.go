@@ -133,7 +133,7 @@ const maxFileSaveBodyBytes = 5 << 20 // 5 MiB
 func (s *Server) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxWorkspaceCreateBodyBytes)
 	var body createWorkspaceRequest
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		logging.FromContext(r.Context()).Warn("workspace create decode error", slog.Any("error", err))
 		writeJSONError(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
@@ -245,7 +245,7 @@ func (s *Server) handleFileRead(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxFileSaveBodyBytes)
 	var body fileSaveRequest
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONError(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -288,7 +288,7 @@ func (s *Server) handleFileSave(w http.ResponseWriter, r *http.Request) {
 	)
 
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"ok":true}`)
+	_, _ = fmt.Fprintf(w, `{"ok":true}`)
 }
 
 // scaffoldFile is a name/content pair for a file to write during workspace creation.
