@@ -3,8 +3,8 @@
 > **Single source of truth.** Every shipped feature, open gap, and planned item lives here.
 > Updated after every merge to `main`. Cross-referenced with GitHub Issues.
 
-**Last updated:** 2026-02-22  
-**Current version:** v0.25.0  
+**Last updated:** 2026-02-24
+**Current version:** v0.29.0
 **Branch policy:** All work on feature branches → PR → merge → tag → update this file.  
 **Sources:** [REVIEW.md](./REVIEW.md) · [SRE_ASSESSMENT.md](./SRE_ASSESSMENT.md) · [STRATEGIC_ANALYSIS.md](./STRATEGIC_ANALYSIS.md)
 
@@ -14,6 +14,8 @@
 
 | Version | Date | Summary | Key PRs |
 |---|---|---|---|
+| **v0.29.0** | 2026-02-24 | Generate model override — separate LLM for code generation via `GENERATE_*` env vars, golangci-lint v2 migration | #58 |
+| **v0.28.0** | 2026-02-23 | Security hardening — per-IP rate limiting, request ID header, audit log, structured startup/shutdown logging | #57 |
 | **v0.25.0** | 2026-02-22 | Backstage integration — catalog entity, scaffolder template, YAML-first config shift | #49 |
 | **v0.24.0** | 2026-02-22 | YAML config file support (`internal/config`), structured CLI audit logging (`internal/audit`) | #48 |
 | **v0.23.0** | 2026-02-22 | RAG metadata auto-inference from URLs, expanded Makefile ingest targets, structured Qdrant payload | #45 |
@@ -204,7 +206,7 @@ These items represent **security vulnerabilities, data loss risks, or broken obs
 | ID | Item | Issue | Effort |
 |---|---|---|---|
 | **CFG-4** | Config hot-reload with fsnotify | #40 | ~90 LOC |
-| **MM-1–4** | Multi-model support (chat / code / embedding) | #40 | ~110 LOC |
+| **MM-1–4** | Multi-model support (chat / code / embedding) — **code gen override shipped v0.29.0**, embedding override TODO | #40 | ~50 LOC remaining |
 | **MCP-1** | MCP server spike (2-hour timeboxed) | — (create) | ~100 LOC |
 | **RAG-1** | RAG architecture ADR | #36 | Prose |
 | **RAG-6** | Reranking pipeline | #35 | ~300 LOC |
