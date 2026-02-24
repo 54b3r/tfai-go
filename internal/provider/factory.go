@@ -38,14 +38,12 @@ type ModelCfg struct {
 func NewFromEnv(ctx context.Context) (*ModelCfg, error) {
 	var genCfg *Config
 	var genModel model.ToolCallingChatModel
-	// var models []model.ToolCallingChatModel
-	// mc := &ModelConfigs{}
-	mc2 := &ModelCfg{}
+	mc := &ModelCfg{}
 
 	cfg := ConfigFromEnv()
 	model, err := New(ctx, cfg)
 	if err != nil {
-		return mc2, fmt.Errorf("generate: failed to initialize chat model provider: %w", err)
+		return mc, fmt.Errorf("generate: failed to initialize chat model provider: %w", err)
 	}
 
 	// If cfg.Generate is present and the generate backend does not match the config backend (different model providers)
@@ -54,21 +52,21 @@ func NewFromEnv(ctx context.Context) (*ModelCfg, error) {
 		genCfg = cfg.WithGenerateOverrides()
 		genModel, err = New(ctx, genCfg)
 		if err != nil {
-			return mc2, fmt.Errorf("generate: failed to initialize generation model provider: %w", err)
+			return mc, fmt.Errorf("generate: failed to initialize generation model provider: %w", err)
 		}
-		mc2.GenerateModel = genModel
+		mc.GenerateModel = genModel
 	} else {
 		genModel = model
 	}
 
-	mc2.ChatModel = model
-	mc2.GenerateModel = genModel
-	mc2.EmbeddingModel = genModel // For now defaulting to gen model, we can inpl the embeddings once
+	mc.ChatModel = model
+	mc.GenerateModel = genModel
+	mc.EmbeddingModel = genModel // For now defaulting to gen model, we can inpl the embeddings once
 
 	// Put models in an array to be extracted and used
 	// models = append(models, mc.Type[0].ChatModel, mc.Type[0].GenerateModel, mc.Type[0].EmbeddingModel)
 	// return models, err
-	return mc2, err
+	return mc, err
 }
 
 // ConfigFromEnv builds a provider Config from environment variables without
@@ -124,21 +122,6 @@ func ConfigFromEnv() *Config {
 			Temperature: getEnvFloat32("MODEL_TEMPERATURE", 0.2),
 		},
 	}
-	// // Generate Overrides if GENERATE_PROVIDER is set, otherwise use configured backend values for chat model
-	// if generateBackend != "" {
-	// 	cfg.Generate.Backend = Backend(generateBackend)
-	// 	cfg.Generate.Deployment = os.Getenv("GENERATE_AZURE_DEPLOYMENT") // Azure OAI
-	// 	cfg.Generate.Version = os.Getenv("GENERATE_AZURE_VERSION")       // Azure OAI
-	// 	cfg.Generate.Model = os.Getenv("GENERATE_MODEL")                 // OpenAI/Ollama/Gemini
-	// 	cfg.Generate.ModelID = os.Getenv("GENERATE_MODEL_ID")            // Bedrock
-	// 	slog.Info("config: generate backend being overwriten with the following ",
-	// 		slog.String("GENERATE_BACKEND", string(cfg.Generate.Backend)),
-	// 		slog.String("GENERATE_AZURE_DEPLOYMENT", cfg.Generate.Deployment),
-	// 		slog.String("GENERATE_AZURE_VERSION", cfg.Generate.Version),
-	// 		slog.String("GENERATE_MODEL", cfg.Generate.Model),
-	// 		slog.String("GENERATE_MODEL_ID", cfg.Generate.ModelID),
-	// 	)
-	// }
 	return cfg
 }
 
