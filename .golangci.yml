@@ -13,7 +13,7 @@ formatters:
         - github.com/54b3r/tfai-go
 
 linters:
-  disable-all: true
+  default: none
   enable:
     # --- Correctness ---
     - errcheck        # unchecked errors
@@ -63,39 +63,26 @@ linters:
       check-type-assertions: true
       check-blank: false  # Allow _ = err pattern for intentionally ignored errors
 
-    wrapcheck:
-      ignorePackageGlobs:
-        - "errors"
-        - "fmt"
-        # Internal packages — errors from these don't need wrapping at call sites
-        - "github.com/54b3r/tfai-go/internal/*"
-      ignoreSigs:
-        # Agent.Query errors are already well-contextualized
-        - "(*github.com/54b3r/tfai-go/internal/agent.TerraformAgent).Query("
-      ignoreSigRegexps:
-        # Eino model constructors — thin wrappers, no value in rewrapping
-        - "github.com/cloudwego/eino-ext/components/model/.*.NewChatModel\\("
-
-issues:
-  exclude-rules:
+  exclusions:
     # Test helpers don't need error wrapping or security analysis.
-    - path: ".*_test\\.go$"
-      linters:
-        - wrapcheck
-        - gosec
+    rules:
+      - path: ".*_test\\.go$"
+        linters:
+          - wrapcheck
+          - gosec
 
-    # Provider backend constructors are thin pass-throughs to eino-ext — wrapping
-    # the constructor error adds no diagnostic value.
-    - path: "internal/provider/backends\\.go$"
-      linters:
-        - wrapcheck
+      # Provider backend constructors are thin pass-throughs to eino-ext — wrapping
+      # the constructor error adds no diagnostic value.
+      - path: "internal/provider/backends\\.go$"
+        linters:
+          - wrapcheck
 
-    # CLI entry points return errors directly to cobra — wrapping adds no value.
-    - path: "cmd/tfai/commands/.*\\.go$"
-      linters:
-        - wrapcheck
+      # CLI entry points return errors directly to cobra — wrapping adds no value.
+      - path: "cmd/tfai/commands/.*\\.go$"
+        linters:
+          - wrapcheck
 
-    # Server SSE writer errors are best-effort — wrapping adds no value.
-    - path: "internal/server/server\\.go$"
-      linters:
-        - wrapcheck
+      # Server SSE writer errors are best-effort — wrapping adds no value.
+      - path: "internal/server/server\\.go$"
+        linters:
+          - wrapcheck
