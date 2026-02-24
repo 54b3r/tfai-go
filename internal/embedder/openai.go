@@ -117,7 +117,7 @@ func (e *OpenAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 	if err != nil {
 		return nil, fmt.Errorf("openai embedder: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result openaiEmbedResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

@@ -79,7 +79,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("ingest: failed to connect to Qdrant at %s:%d: %w", qdrantHost, qdrantPort, err)
 			}
-			defer store.Close()
+			defer func() { _ = store.Close() }()
 			log.Info("qdrant store ready", slog.String("host", qdrantHost), slog.Int("port", qdrantPort), slog.String("collection", collection))
 
 			pipeline, err := ingestion.NewPipeline(emb, store, nil)

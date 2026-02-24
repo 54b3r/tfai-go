@@ -2,7 +2,7 @@
 
 **Purpose:** Step-by-step guide for verifying every feature of tfai-go after any code change. Designed to be followed without AI assistance.
 
-**Last updated:** 2026-02-22 (v0.20.x — RAG pipeline wired)
+**Last updated:** 2026-02-24 (v0.29.0 — generate model override)
 
 ---
 
@@ -11,6 +11,7 @@
 1. [Prerequisites](#1-prerequisites)
 2. [Build & Gate Verification](#2-build--gate-verification)
 3. [CLI Smoke Tests](#3-cli-smoke-tests)
+   - [3.8 Generate Model Override](#38-generate-model-override)
 4. [Server Startup & Health](#4-server-startup--health)
 5. [API Endpoint Tests](#5-api-endpoint-tests)
 6. [Web UI Smoke Tests](#6-web-ui-smoke-tests)
@@ -218,6 +219,128 @@ time=... level=INFO msg="ingestion complete" sources=1
 
 ```bash
 rm -rf /tmp/tfai-test-ws /tmp/tfai-gen-test /tmp/plan-error.txt
+```
+
+---
+
+## 3.8 Generate Model Override
+
+The `tfai generate` command supports using a different LLM than the default chat model. This is useful for using specialized code generation models (e.g., GPT-4o for generation while using a cheaper model for chat).
+
+### Environment Variables
+
+| Variable | Description |
+|---|---|
+| `GENERATE_MODEL_PROVIDER` | Override provider (openai, azure, ollama, bedrock, gemini) |
+| `GENERATE_MODEL` | Override model name (OpenAI, Ollama, Gemini) |
+| `GENERATE_AZURE_DEPLOYMENT` | Override Azure deployment name |
+| `GENERATE_AZURE_VERSION` | Override Azure API version |
+| `GENERATE_MODEL_ID` | Override Bedrock model ID |
+
+### 3.8.1 Default behavior (no override)
+
+```bash
+# Set base model
+export MODEL_PROVIDER=ollama
+export OLLAMA_MODEL=llama3
+
+# Both commands use the same model
+./bin/tfai ask "what is terraform?"
+./bin/tfai generate --out /tmp/gen-default "S3 bucket with versioning"
+
+# Verify: both should use ollama/llama3 (check startup logs)
+```
+
+**Expected:** Both commands log the same provider/model at startup.
+
+### 3.8.2 Full provider override
+
+```bash
+# Base: Ollama for chat
+export MODEL_PROVIDER=ollama
+export OLLAMA_MODEL=llama3
+
+# Override: OpenAI for generate
+export GENERATE_MODEL_PROVIDER=openai
+export OPENAI_API_KEY=sk-...
+export GENERATE_MODEL=gpt-4o
+
+./bin/tfai ask "what is terraform?"
+# Expected log: provider=ollama model=llama3
+
+./bin/tfai generate --out /tmp/gen-openai "EKS cluster with IRSA"
+# Expected log: provider=openai model=gpt-4o
+```
+
+**Expected:** `ask` uses Ollama, `generate` uses OpenAI.
+
+### 3.8.3 Azure deployment override
+
+```bash
+# Base: Azure with gpt-4o-mini
+export MODEL_PROVIDER=azure
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_ENDPOINT=https://myresource.openai.azure.com
+export AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+
+# Override: Different deployment for code generation
+export GENERATE_AZURE_DEPLOYMENT=gpt-4o
+export GENERATE_AZURE_VERSION=2024-12-01
+
+./bin/tfai ask "what is terraform?"
+# Expected: uses gpt-4o-mini deployment
+
+./bin/tfai generate --out /tmp/gen-azure "Lambda with API Gateway"
+# Expected: uses gpt-4o deployment
+```
+
+**Expected:** `ask` uses `gpt-4o-mini` deployment, `generate` uses `gpt-4o` deployment.
+
+### 3.8.4 Partial override (same provider, different model)
+
+```bash
+# Base: OpenAI with gpt-4o-mini
+export MODEL_PROVIDER=openai
+export OPENAI_API_KEY=sk-...
+export OPENAI_MODEL=gpt-4o-mini
+
+# Override: Just the model name (same provider)
+export GENERATE_MODEL=gpt-4o
+
+./bin/tfai ask "what is terraform?"
+# Expected: openai/gpt-4o-mini
+
+./bin/tfai generate --out /tmp/gen-partial "RDS PostgreSQL with read replica"
+# Expected: openai/gpt-4o
+```
+
+**Expected:** Both use OpenAI, but with different models.
+
+### 3.8.5 Verify override is NOT applied to other commands
+
+```bash
+export MODEL_PROVIDER=ollama
+export OLLAMA_MODEL=llama3
+export GENERATE_MODEL_PROVIDER=openai
+export GENERATE_MODEL=gpt-4o
+
+# These should all use Ollama (base model), NOT the override
+./bin/tfai ask "what is terraform?"
+echo "Error: bucket exists" | ./bin/tfai diagnose
+./bin/tfai serve &
+curl -s -X POST http://localhost:8080/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "what is a VPC?"}'
+kill %1
+```
+
+**Expected:** All commands except `generate` use the base model (ollama/llama3).
+
+### Cleanup
+
+```bash
+rm -rf /tmp/gen-default /tmp/gen-openai /tmp/gen-azure /tmp/gen-partial
+unset GENERATE_MODEL_PROVIDER GENERATE_MODEL GENERATE_AZURE_DEPLOYMENT GENERATE_AZURE_VERSION GENERATE_MODEL_ID
 ```
 
 ---

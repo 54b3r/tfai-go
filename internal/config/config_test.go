@@ -59,7 +59,7 @@ logging:
 	}
 	for _, k := range envKeys {
 		t.Setenv(k, "")
-		os.Unsetenv(k)
+		_ = os.Unsetenv(k)
 	}
 
 	log := slog.Default()

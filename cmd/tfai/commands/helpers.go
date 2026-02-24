@@ -18,6 +18,31 @@ import (
 	tftools "github.com/54b3r/tfai-go/internal/tools"
 )
 
+// Returns initialized models, agentTools, retriever,  error
+func initCommand(ctx context.Context) (*provider.ModelCfg, []tool.BaseTool, rag.Retriever, func(), error) {
+
+	models, err := provider.NewFromEnv(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("initCommand: failed to initialise model provider: %w", err)
+	}
+
+	runner, err := tftools.NewExecRunner()
+	if err != nil {
+		// terraform not on PATH is non-fatal for ask — warn and continue.
+		fmt.Fprintf(os.Stderr, "initCommand: warning: %v (plan/state tools unavailable)\n", err)
+		runner = nil
+	}
+
+	agentTools := buildTools(runner)
+
+	retriever, closeRetriever, err := buildRetriever(ctx, slog.Default())
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("initCommand: %w", err)
+	}
+
+	return models, agentTools, retriever, closeRetriever, err
+}
+
 // buildPingers constructs the readiness probes for GET /api/ready.
 // The LLM pinger is always included and uses a zero-cost HTTP health check
 // when the provider supports it, falling back to a Generate call otherwise.
@@ -67,7 +92,7 @@ func buildRetriever(ctx context.Context, log *slog.Logger) (rag.Retriever, func(
 	}
 
 	if err := embedder.ValidateForRAG(log); err != nil {
-		return nil, noop, err
+		return nil, noop, err //nolint:wrapcheck // validation error is already descriptive
 	}
 
 	emb, err := embedder.NewFromEnv()

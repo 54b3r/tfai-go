@@ -12,6 +12,10 @@ import (
 	"github.com/cloudwego/eino/components/model"
 )
 
+/*
+Config Section
+*/
+
 // Backend enumerates the supported LLM inference providers.
 type Backend string
 
@@ -27,6 +31,93 @@ const (
 	// BackendGemini selects Google Gemini via Vertex AI or AI Studio.
 	BackendGemini Backend = "gemini"
 )
+
+// ProviderAzureOpenAI holds configuration for Azure OpenAI Service.
+type ProviderAzureOpenAI struct {
+	// APIKey is the Azure OpenAI API key (AZURE_OPENAI_API_KEY).
+	APIKey string
+	// Endpoint is the Azure OpenAI resource endpoint (AZURE_OPENAI_ENDPOINT).
+	Endpoint string
+	// Deployment is the Azure OpenAI deployment name (AZURE_OPENAI_DEPLOYMENT).
+	Deployment string
+	// APIVersion is the Azure OpenAI REST API version (AZURE_OPENAI_API_VERSION).
+	APIVersion string
+	// ReasoningOverride explicitly forces or disables reasoning-model mode,
+	// overriding auto-detection. nil = auto-detect from deployment name.
+	// Set AZURE_OPENAI_REASONING=true to force on, =false to force off.
+	ReasoningOverride *bool
+}
+
+// ProviderBedrock holds configuration for AWS Bedrock.
+// Credentials are resolved via the standard AWS SDK credential chain.
+type ProviderBedrock struct {
+	// AWSRegion is the AWS region (AWS_REGION).
+	AWSRegion string
+	// ModelID is the Bedrock model ID (BEDROCK_MODEL_ID).
+	ModelID string
+}
+
+// ProviderGemini holds configuration for Google Gemini.
+type ProviderGemini struct {
+	// APIKey is the Google AI Studio API key (GOOGLE_API_KEY).
+	APIKey string
+	// Model is the Gemini model name (GEMINI_MODEL).
+	Model string
+}
+
+// ProviderOpenAI holds configuration for the OpenAI API.
+type ProviderOpenAI struct {
+	// APIKey is the OpenAI API key (OPENAI_API_KEY).
+	APIKey string
+	// Model is the OpenAI model ID (OPENAI_MODEL).
+	Model string
+}
+
+// ProviderOllama holds configuration for a locally running Ollama instance.
+type ProviderOllama struct {
+	// Host is the Ollama server base URL (OLLAMA_HOST).
+	Host string
+	// Model is the Ollama model name to use (OLLAMA_MODEL).
+	Model string
+}
+
+// SharedTuning holds generation parameters shared across all backends.
+type SharedTuning struct {
+	// MaxTokens caps the number of tokens the model may generate per response.
+	MaxTokens int
+	// Temperature controls response randomness (0.0–1.0).
+	Temperature float32
+}
+
+// Config holds all provider-level configuration resolved from environment
+// variables. Each provider uses its own native credential env vars rather
+// than a homogenised MODEL_API_KEY abstraction.
+type Config struct {
+	Backend     Backend             // Backend identifies which inference provider to use (MODEL_PROVIDER).
+	Generate    *GenerateOverrides  //Generate-specific overrides (optional)
+	AzureOpenAI ProviderAzureOpenAI // AzureOpenAI holds config for Azure OpenAI Service.
+	Bedrock     ProviderBedrock     // Bedrock holds config for AWS Bedrock. Credentials are resolved via the standard AWS SDK credential chain
+	Gemini      ProviderGemini      // Gemini holds config for Google Gemini (AI Studio or Vertex AI).
+	OpenAI      ProviderOpenAI      // OpenAI holds config for the OpenAI API.
+	Ollama      ProviderOllama      // Ollama holds config for a locally running Ollama instance.
+	Tuning      SharedTuning        // Tuning holds shared generation parameters applied to all backends.
+}
+
+/*
+Generate Overrides
+*/
+
+type GenerateOverrides struct {
+	Backend    Backend
+	Deployment string // Azure based Codex
+	Version    string // Azure based Codex (incase its a diff base version)
+	Model      string // OpenAI/Ollama/Gemini
+	ModelID    string // Bedrock
+}
+
+/*
+Health Check Section
+*/
 
 type HealthCheckConfig interface {
 	GetURL() string
@@ -60,7 +151,7 @@ func doHealthGet(ctx context.Context, url string, headers map[string]string) err
 	if err != nil {
 		return fmt.Errorf("health check: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("health check: HTTP %d", resp.StatusCode)
 	}
@@ -68,9 +159,7 @@ func doHealthGet(ctx context.Context, url string, headers map[string]string) err
 }
 
 // No auth — just GET and check 2xx
-func httpGetCheck(ctx context.Context, url, _ string) error {
-	return doHealthGet(ctx, url, nil)
-}
+func httpGetCheck(ctx context.Context, url, _ string) error { return doHealthGet(ctx, url, nil) }
 
 // Bearer token auth
 func bearerAuthCheck(ctx context.Context, url, apiKey string) error {
@@ -80,41 +169,6 @@ func bearerAuthCheck(ctx context.Context, url, apiKey string) error {
 // Azure api-key header
 func azureAPIKeyCheck(ctx context.Context, url, apiKey string) error {
 	return doHealthGet(ctx, url, map[string]string{"api-key": apiKey})
-}
-
-// Config holds all provider-level configuration resolved from environment
-// variables. Each provider uses its own native credential env vars rather
-// than a homogenised MODEL_API_KEY abstraction.
-type Config struct {
-	// Backend identifies which inference provider to use (MODEL_PROVIDER).
-	Backend Backend
-
-	// Ollama holds config for a locally running Ollama instance.
-	Ollama ProviderOllama
-
-	// OpenAI holds config for the OpenAI API.
-	OpenAI ProviderOpenAI
-
-	// AzureOpenAI holds config for Azure OpenAI Service.
-	AzureOpenAI ProviderAzureOpenAI
-
-	// Bedrock holds config for AWS Bedrock. Credentials are resolved via
-	// the standard AWS SDK credential chain — no key fields needed here.
-	Bedrock ProviderBedrock
-
-	// Gemini holds config for Google Gemini (AI Studio or Vertex AI).
-	Gemini ProviderGemini
-
-	// Tuning holds shared generation parameters applied to all backends.
-	Tuning SharedTuning
-}
-
-// ProviderOllama holds configuration for a locally running Ollama instance.
-type ProviderOllama struct {
-	// Host is the Ollama server base URL (OLLAMA_HOST).
-	Host string
-	// Model is the Ollama model name to use (OLLAMA_MODEL).
-	Model string
 }
 
 // NewHealthCheckConfig constructs a zero-cost HealthCheckConfig for the given
@@ -158,55 +212,6 @@ func NewHealthCheckConfig(b Backend, cfg *Config) HealthCheckConfig {
 	default:
 		return nil
 	}
-}
-
-// ProviderOpenAI holds configuration for the OpenAI API.
-type ProviderOpenAI struct {
-	// APIKey is the OpenAI API key (OPENAI_API_KEY).
-	APIKey string
-	// Model is the OpenAI model ID (OPENAI_MODEL).
-	Model string
-}
-
-// ProviderAzureOpenAI holds configuration for Azure OpenAI Service.
-type ProviderAzureOpenAI struct {
-	// APIKey is the Azure OpenAI API key (AZURE_OPENAI_API_KEY).
-	APIKey string
-	// Endpoint is the Azure OpenAI resource endpoint (AZURE_OPENAI_ENDPOINT).
-	Endpoint string
-	// Deployment is the Azure OpenAI deployment name (AZURE_OPENAI_DEPLOYMENT).
-	Deployment string
-	// APIVersion is the Azure OpenAI REST API version (AZURE_OPENAI_API_VERSION).
-	APIVersion string
-	// ReasoningOverride explicitly forces or disables reasoning-model mode,
-	// overriding auto-detection. nil = auto-detect from deployment name.
-	// Set AZURE_OPENAI_REASONING=true to force on, =false to force off.
-	ReasoningOverride *bool
-}
-
-// ProviderBedrock holds configuration for AWS Bedrock.
-// Credentials are resolved via the standard AWS SDK credential chain.
-type ProviderBedrock struct {
-	// AWSRegion is the AWS region (AWS_REGION).
-	AWSRegion string
-	// ModelID is the Bedrock model ID (BEDROCK_MODEL_ID).
-	ModelID string
-}
-
-// ProviderGemini holds configuration for Google Gemini.
-type ProviderGemini struct {
-	// APIKey is the Google AI Studio API key (GOOGLE_API_KEY).
-	APIKey string
-	// Model is the Gemini model name (GEMINI_MODEL).
-	Model string
-}
-
-// SharedTuning holds generation parameters shared across all backends.
-type SharedTuning struct {
-	// MaxTokens caps the number of tokens the model may generate per response.
-	MaxTokens int
-	// Temperature controls response randomness (0.0–1.0).
-	Temperature float32
 }
 
 // Validate checks that all required fields for the selected backend are

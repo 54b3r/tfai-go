@@ -318,7 +318,7 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 			}
 			filesWritten = true
 			// Stream the summary to the SSE writer, not stdout.
-			fmt.Fprint(w, result.Summary)
+			_, _ = fmt.Fprint(w, result.Summary)
 			return filesWritten, nil
 		}
 	}

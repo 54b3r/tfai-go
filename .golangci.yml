@@ -1,9 +1,19 @@
 # golangci-lint configuration for tfai-go.
 # Docs: https://golangci-lint.run/usage/configuration/
-# Compatible with golangci-lint v1.x
+
+version: "2"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/54b3r/tfai-go
 
 linters:
-  disable-all: true
+  default: none
   enable:
     # --- Correctness ---
     - errcheck        # unchecked errors
@@ -16,8 +26,6 @@ linters:
     - gosec           # security anti-patterns (G101–G601)
 
     # --- Code quality ---
-    - gofmt           # formatting
-    - goimports       # import ordering
     - misspell        # common spelling mistakes in comments/strings
     - unconvert       # unnecessary type conversions
     - prealloc        # slice pre-allocation opportunities
@@ -28,45 +36,53 @@ linters:
     - errorlint       # errors.Is/As usage
     - wrapcheck       # errors from external packages should be wrapped
 
-linters-settings:
-  gosec:
-    excludes:
-      # G304: file path provided as taint input — we handle confinement explicitly
-      # via confineToDir(); suppressing here to avoid noise on intentional reads.
-      - G304
-      # G306: file permissions — we use 0o644/0o755 intentionally throughout.
-      - G306
+  settings:
+    gosec:
+      excludes:
+        # G104: errors unhandled — some are intentionally best-effort
+        - G104
+        # G117: APIKey field name pattern — these are legitimate credential fields.
+        - G117
+        # G204: subprocess with variable args — terraform CLI invocation is intentional.
+        - G204
+        # G301: directory permissions 0755 — standard for Terraform workspaces.
+        - G301
+        # G304: file path provided as taint input — we handle confinement explicitly
+        # via confineToDir(); suppressing here to avoid noise on intentional reads.
+        - G304
+        # G306: file permissions 0644 — Terraform files need to be readable.
+        - G306
+        # G703: path traversal via taint — we validate paths via confineToDir().
+        - G703
+        # G704: SSRF via HTTP client — intentional for calling LLM/embedding APIs.
+        - G704
+        # G705: XSS via taint — SSE responses are controlled, not user-injected HTML.
+        - G705
 
-  errcheck:
-    # Check for errors in type assertions.
-    check-type-assertions: true
-    # Check for errors in blank assignments.
-    check-blank: true
+    errcheck:
+      check-type-assertions: true
+      check-blank: false  # Allow _ = err pattern for intentionally ignored errors
 
-  wrapcheck:
-    ignorePackageGlobs:
-      # Standard library errors are fine to return unwrapped.
-      - "errors"
-      - "fmt"
-
-  goimports:
-    local-prefixes: github.com/54b3r/tfai-go
-
-issues:
-  exclude-rules:
+  exclusions:
     # Test helpers don't need error wrapping or security analysis.
-    - path: "_test\\.go"
-      linters:
-        - wrapcheck
-        - gosec
+    rules:
+      - path: ".*_test\\.go$"
+        linters:
+          - wrapcheck
+          - gosec
 
-    # Provider backend constructors are thin pass-throughs to eino-ext — wrapping
-    # the constructor error adds no diagnostic value.
-    - path: "internal/provider/backends\\.go"
-      linters:
-        - wrapcheck
+      # Provider backend constructors are thin pass-throughs to eino-ext — wrapping
+      # the constructor error adds no diagnostic value.
+      - path: "internal/provider/backends\\.go$"
+        linters:
+          - wrapcheck
 
-    # CLI entry points return errors directly to cobra — wrapping adds no value.
-    - path: "cmd/tfai/commands/"
-      linters:
-        - wrapcheck
+      # CLI entry points return errors directly to cobra — wrapping adds no value.
+      - path: "cmd/tfai/commands/.*\\.go$"
+        linters:
+          - wrapcheck
+
+      # Server SSE writer errors are best-effort — wrapping adds no value.
+      - path: "internal/server/server\\.go$"
+        linters:
+          - wrapcheck

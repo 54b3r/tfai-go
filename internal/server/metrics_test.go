@@ -43,7 +43,7 @@ func Test_Metrics_EndpointReturns200(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /metrics: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("want 200, got %d", resp.StatusCode)

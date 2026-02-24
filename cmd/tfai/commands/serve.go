@@ -86,7 +86,7 @@ Examples:
 					}
 				}
 				if dbPath != "" {
-					hs, hsErr := store.Open(dbPath)
+					hs, hsErr := store.Open(ctx, dbPath)
 					if hsErr != nil {
 						log.Warn("history: failed to open store, disabling", slog.Any("error", hsErr))
 					} else {
