@@ -13,7 +13,16 @@ func applyFiles(output *TerraformAgentOutput, workspaceDir string) error {
 
 	// Loop over output.Files output by the agent and add them to filesystem
 	for _, file := range output.Files {
-		filePath := filepath.Join(root, file.Path)
+		// Defensive: strip the workspace root prefix if the LLM echoed it back
+		// in the file path. Without this, --out /tmp/foo with an LLM path of
+		// "/tmp/foo/main.tf" would produce /tmp/foo/tmp/foo/main.tf.
+		cleanPath := filepath.Clean(file.Path)
+		cleanPath = strings.TrimPrefix(cleanPath, root)
+		cleanPath = strings.TrimPrefix(cleanPath, string(filepath.Separator))
+		if cleanPath == "" || cleanPath == "." {
+			continue
+		}
+		filePath := filepath.Join(root, cleanPath)
 		// Separator-aware prefix check prevents /tmp/foo matching /tmp/foobar.
 		if !strings.HasPrefix(filePath+string(filepath.Separator), root+string(filepath.Separator)) {
 			return fmt.Errorf("agent::applyFiles: file path %s is outside workspace %s", filePath, root)

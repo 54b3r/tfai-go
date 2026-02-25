@@ -15,6 +15,9 @@ func NewVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the tfai version, git commit, and build date",
+		// PersistentPreRunE is overridden to skip config load and audit logging.
+		// version is a pure info command that requires no environment setup.
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error { return nil },
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("tfai %s (commit: %s, built: %s)\n",
 				version.Version, version.Commit, version.BuildDate)

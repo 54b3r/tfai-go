@@ -43,7 +43,7 @@ deps: ## Download and tidy Go module dependencies
 
 .PHONY: install-tools
 install-tools: ## Install local development tools (golangci-lint, goimports, govulncheck)
-	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	$(GO) install golang.org/x/tools/cmd/goimports@latest
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
 
@@ -55,6 +55,10 @@ build: ## Build the tfai binary natively (version info injected via ldflags)
 .PHONY: version
 version: build ## Print the version of the locally built binary
 	./bin/$(BINARY) version
+
+.PHONY: install
+install: ## Install tfai binary to $GOPATH/bin with version info (ldflags)
+	$(GO) install $(GOFLAGS) -trimpath -ldflags="$(LD_FLAGS)" ./cmd/tfai
 
 .PHONY: build-docker
 build-docker: ## Build the Docker image
