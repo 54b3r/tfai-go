@@ -22,13 +22,23 @@ jobs:
           cache: true
 
       - name: go build
-        run: go build ./...
+        run: go build -trimpath -o bin/tfai ./cmd/tfai
 
       - name: go vet
         run: go vet ./...
 
       - name: go test (race)
         run: go test -race -count=1 ./...
+
+      # Binary smoke tests - verify the built binary actually runs
+      - name: Smoke test - version
+        run: ./bin/tfai version
+
+      - name: Smoke test - help
+        run: ./bin/tfai --help
+
+      - name: Smoke test - serve help
+        run: ./bin/tfai serve --help
 
   lint:
     name: Lint

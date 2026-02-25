@@ -31,9 +31,17 @@ jobs:
       - name: Set version variables
         id: vars
         run: |
-          echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          VERSION="${GITHUB_REF_NAME}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+          # Detect if this is a pre-release (rc, alpha, beta)
+          if [[ "$VERSION" =~ -(rc|alpha|beta) ]]; then
+            echo "PRERELEASE=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "PRERELEASE=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # Run the full test gate before releasing — never ship a broken binary.
       - name: go build (verify)
@@ -41,6 +49,11 @@ jobs:
 
       - name: go vet
         run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
 
       - name: go test (race)
         run: go test -race -count=1 ./...
@@ -74,10 +87,12 @@ jobs:
           cat checksums.txt
 
       # Create the GitHub Release and attach all binaries + checksums.
+      # Pre-releases (rc, alpha, beta) are marked as such and won't show as "latest".
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.vars.outputs.VERSION }}
+          prerelease: ${{ steps.vars.outputs.PRERELEASE == 'true' }}
           generate_release_notes: true # auto-generates notes from merged PRs/commits
           files: |
             dist/tfai-linux-amd64

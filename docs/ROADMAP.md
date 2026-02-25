@@ -271,7 +271,64 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 
 ---
 
-## 8. How to Update This File
+## 8. How to Release
+
+### Versioning Convention
+
+| Change Type | Version Bump | Example |
+|---|---|---|
+| Breaking changes | Major (when v1+) | v1.0.0 → v2.0.0 |
+| New features | Minor | v0.29.0 → v0.30.0 |
+| Bug fixes only | Patch | v0.29.0 → v0.29.1 |
+| Pre-release testing | RC suffix | v0.30.0-rc.1 |
+
+### Release Checklist
+
+```bash
+# 1. Ensure you're on main with all changes merged
+git checkout main && git pull
+
+# 2. Run the full gate locally — must pass
+make gate
+
+# 3. Update this file (docs/ROADMAP.md)
+#    - Add entry to Release History table
+#    - Update "Current version" at top
+#    - Mark completed items in audit sections
+
+# 4. Commit the release prep
+git add docs/ROADMAP.md
+git commit -m "chore: prepare vX.Y.Z release"
+git push
+
+# 5. Create and push the tag
+git tag vX.Y.Z
+git push --tags
+
+# 6. Verify the release
+#    - Check GitHub Actions: release workflow should trigger
+#    - Check GitHub Releases: binaries and checksums attached
+#    - Download and test a binary on your platform
+```
+
+### Tag Format
+
+Tags **must** follow semantic versioning: `vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-rc.N`
+
+- ✅ `v0.30.0`, `v1.0.0`, `v0.30.0-rc.1`
+- ❌ `v0.30`, `0.30.0`, `release-0.30.0`
+
+### What the Release Workflow Does
+
+1. Validates the tag format
+2. Runs full test suite (build, vet, lint, test)
+3. Builds binaries for: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64
+4. Generates SHA256 checksums
+5. Creates GitHub Release with auto-generated notes from merged PRs
+
+---
+
+## 9. How to Update This File
 
 1. After every merge to `main`: update the **Release History** table and mark completed items.
 2. After creating a GitHub issue: add the issue number to the relevant row.
