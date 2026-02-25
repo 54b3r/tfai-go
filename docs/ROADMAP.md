@@ -3,10 +3,92 @@
 > **Single source of truth.** Every shipped feature, open gap, and planned item lives here.
 > Updated after every merge to `main`. Cross-referenced with GitHub Issues.
 
-**Last updated:** 2026-02-24
+**Last updated:** 2026-02-25
 **Current version:** v0.29.0
-**Branch policy:** All work on feature branches → PR → merge → tag → update this file.  
+**Maturity:** Alpha (see [Path to Beta](#path-to-beta))
+**Branch policy:** All work on feature branches → PR → merge → tag → update this file.
+**Changelog:** [CHANGELOG.md](../CHANGELOG.md)
 **Sources:** [REVIEW.md](./REVIEW.md) · [SRE_ASSESSMENT.md](./SRE_ASSESSMENT.md) · [STRATEGIC_ANALYSIS.md](./STRATEGIC_ANALYSIS.md)
+
+---
+
+## Path to Beta
+
+> **Current state: Alpha** — Core functionality works end-to-end, but security hardening and test coverage gaps block Beta readiness.
+
+### Release Lifecycle
+
+```
+Alpha (current) → Beta → RC → GA (v1.0.0)
+```
+
+| Stage | Definition | Exit Criteria |
+|-------|------------|---------------|
+| **Alpha** | Core works, known gaps, internal only | Security hardening complete, basic test coverage |
+| **Beta** | Feature-complete for v1 scope, being hardened | No critical bugs, external early adopters can use |
+| **RC** | Release candidate, final validation | No known issues after testing period |
+| **GA** | Production-ready, stable, supported | Stable for 2+ weeks, docs complete |
+
+### In-Flight Work
+
+| Branch | Description | Status | Target Version |
+|--------|-------------|--------|----------------|
+| `feat/azure-codex-support` | Azure AI Foundry GPT-5.2-Codex support via `/openai/responses` endpoint | Ready for merge | v0.30.0 |
+
+### Beta Blockers (Must Complete)
+
+These items **must** be done before declaring Beta. Derived from Priority 1 + critical Priority 2 items.
+
+#### Security & Stability — ✅ COMPLETE
+
+- [x] **MF-2**: Body size limits on `/api/workspace/create` + `/api/file` PUT — `MaxBytesReader` applied (#50 closed)
+- [x] **MF-3**: Cap `buildWorkspaceContext` (50 files, 100KiB/file, 1MiB total) (#50 closed)
+- [x] **SEC-5**: Fix `writeJSONError` JSON injection — uses `json.Marshal` (#50 closed)
+- [x] **SEC-2**: `--workspace-root` flag to confine file operations (#52 closed)
+- [x] **NH-2**: Cap response buffer in `agent.Query()` — 4 MiB limit (#50 closed)
+
+#### Observability — ✅ COMPLETE
+
+- [x] **MF-1**: Wire `httpRequestsTotal` + `httpDurationSeconds` metrics — `metricsMiddleware` added (#50 closed)
+- [x] **LOG-2**: Add `"chat complete"` success log — in `server.go:255` (#50 closed)
+
+#### Test Coverage — ❌ REMAINING
+
+- [ ] **TEST-1**: Unit tests for `internal/tools` — plan, state, generate, runner (#53)
+- [ ] **TEST-5**: Unit tests for `internal/rag` — qdrant store, retriever (#53)
+
+#### Legal / Open Source — ✅ COMPLETE
+
+- [x] **DX-6**: Add LICENSE file (#51 closed)
+
+### Beta Nice-to-Have (Should Complete)
+
+These items improve Beta quality but don't block the release.
+
+- [ ] **CI-2**: Add `govulncheck` to CI workflow
+- [ ] **SEC-6**: Move docker-compose hardcoded secrets to `.env` reference
+- [ ] **CFG-8**: Config validation at startup (required fields, valid ranges) (#40)
+- [ ] **DX-5**: Add CONTRIBUTING.md
+
+### Post-Beta / Path to GA
+
+Once Beta is declared, focus shifts to:
+
+1. **Stability**: Fix bugs reported by early adopters
+2. **Documentation**: Complete user guide, API docs
+3. **Hardening**: Priority 3 items (concurrent stream limits, command timeouts, business metrics)
+4. **RC Release**: Tag `v1.0.0-rc.1` when no known critical issues
+5. **GA Release**: Tag `v1.0.0` after RC stabilization period (2 weeks recommended)
+
+### Estimated Effort to Beta
+
+| Category | Items | Status | LOC Estimate | Time Estimate |
+|----------|-------|--------|--------------|---------------|
+| Security & Stability | 5 items | ✅ Done | — | — |
+| Observability | 2 items | ✅ Done | — | — |
+| Test Coverage | 2 items | ❌ Remaining | ~350 LOC | ~6 hours |
+| Legal | 1 item | ✅ Done | — | — |
+| **Total Remaining** | **2 items** | | **~350 LOC** | **~6 hours** |
 
 ---
 
@@ -14,8 +96,10 @@
 
 | Version | Date | Summary | Key PRs |
 |---|---|---|---|
-| **v0.29.0** | 2026-02-24 | Generate model override — separate LLM for code generation via `GENERATE_*` env vars, golangci-lint v2 migration | #58 |
-| **v0.28.0** | 2026-02-23 | Security hardening — per-IP rate limiting, request ID header, audit log, structured startup/shutdown logging | #57 |
+| **v0.30.0** | 2026-02-25 | Azure Codex support — GPT-5.2-Codex via `/openai/responses` endpoint, raw HTTP client | #63 (pending) |
+| **v0.29.0** | 2026-02-25 | CI improvements — binary smoke tests, RC release support, docs updates, smoke test regression fixes | #59, #62 |
+| **v0.28.0** | 2026-02-24 | Generate model override — separate LLM for code generation via `GENERATE_*` env vars, golangci-lint v2 migration | #58 |
+| **v0.27.0** | 2026-02-23 | Security hardening — per-IP rate limiting, request ID header, audit log, structured startup/shutdown logging | #57 |
 | **v0.25.0** | 2026-02-22 | Backstage integration — catalog entity, scaffolder template, YAML-first config shift | #49 |
 | **v0.24.0** | 2026-02-22 | YAML config file support (`internal/config`), structured CLI audit logging (`internal/audit`) | #48 |
 | **v0.23.0** | 2026-02-22 | RAG metadata auto-inference from URLs, expanded Makefile ingest targets, structured Qdrant payload | #45 |
@@ -33,6 +117,9 @@
 
 | # | Title | Closed |
 |---|---|---|
+| #52 | `--workspace-root` flag to confine file operations | 2026-02-25 |
+| #51 | Add LICENSE file | 2026-02-25 |
+| #50 | Hardening: dead metrics, body limits, workspace caps, JSON injection, chat complete log | 2026-02-25 |
 | #47 | Backstage integration — catalog entry, scaffolder, deployment guide | 2026-02-22 |
 | #34 | RAG: dedicated embedding model selection | 2026-02-22 |
 | #30 | Wire Authorization header in web UI fetch calls | 2026-02-20 |
@@ -54,6 +141,9 @@
 
 | # | Title | Category | Roadmap Tier | Priority |
 |---|---|---|---|---|
+| **#61** | File-based audit logging with stdout control | Logging | Tier 2 | Medium |
+| **#60** | CLI logger inconsistency — unify slog, add `--output json` | Logging | Tier 2 | Medium |
+| **#53** | Unit tests for `internal/tools` and `internal/rag` | Testing | Tier 1 | **High — Beta blocker** |
 | **#46** | LLM-based metadata classification (`--classify` flag) | RAG | Tier 3 | Low |
 | **#40** | YAML config — hot-reload + multi-model support | Config | Tier 2 | Medium |
 | **#36** | RAG architecture review — naive vs advanced patterns | RAG | Tier 2 | Medium |
@@ -61,6 +151,8 @@
 | **#12** | Migrate UI to Vite + React | UI | Tier 3 | Low (blocked by MCP decision) |
 | **#11** | `.air.toml` + `make dev` for hot-reload | DX | Tier 2 | Medium |
 | **#10** | 3 Musketeers dev container | DX | Tier 3 | Low |
+
+**Recently Closed:** #50 (hardening), #51 (LICENSE), #52 (workspace-root)
 
 ---
 
@@ -97,32 +189,32 @@
 
 | ID | Finding | Severity | File(s) | Status |
 |---|---|---|---|---|
-| **MF-1** | `httpRequestsTotal` and `httpDurationSeconds` registered in `metrics.go` but **never incremented** — no `metricsMiddleware` exists | **High** | `server/metrics.go`, `server/middleware.go` | ❌ Not done |
-| **LOG-2** | `handleChat` logs `"chat start"` but no `"chat complete"` success log | Medium | `server/server.go` | ❌ Not done |
+| **MF-1** | `httpRequestsTotal` and `httpDurationSeconds` registered in `metrics.go` but **never incremented** — no `metricsMiddleware` exists | **High** | `server/metrics.go`, `server/middleware.go` | ✅ Done (#50) |
+| **LOG-2** | `handleChat` logs `"chat start"` but no `"chat complete"` success log | Medium | `server/server.go` | ✅ Done (#50) |
 | **SF-1** | No pprof debug endpoint | Low | — | ❌ Not done |
 | **OBS-1** | No business metrics (tool invocations, RAG docs injected, history trimmed) | Medium | — | ❌ Not done |
 | **OBS-3** | No Langfuse trace ID in structured logs | Low | — | ❌ Not done |
 | **CI-2** | CI missing `govulncheck` (local `make gate` has it, CI doesn't) | Medium | `.github/workflows/ci.yml` | ❌ Not done |
-| **CI-3** | CI missing binary smoke test | Low | `.github/workflows/ci.yml` | ❌ Not done |
+| **CI-3** | CI missing binary smoke test | Low | `.github/workflows/ci.yml` | ✅ Done (#59) |
 | **CI-4** | No container image build/push in CI | Low | — | ❌ Not done |
 
 #### 4.2.2 Security
 
 | ID | Finding | Severity | File(s) | Status |
 |---|---|---|---|---|
-| **MF-2** | No `MaxBytesReader` on `/api/workspace/create` or `/api/file` PUT — OOM risk | **High** | `server/workspace.go` | ❌ Not done |
-| **SEC-2** | No `--workspace-root` flag to confine file operations to a directory | **High** | `server/workspace.go` | ❌ Not done |
-| **SEC-5** | `writeJSONError` interpolates `msg` directly into JSON string — injection risk | Medium | `server/workspace.go:33` | ❌ Not done |
+| **MF-2** | No `MaxBytesReader` on `/api/workspace/create` or `/api/file` PUT — OOM risk | **High** | `server/workspace.go` | ✅ Done (#50) |
+| **SEC-2** | No `--workspace-root` flag to confine file operations to a directory | **High** | `server/workspace.go` | ✅ Done (#52) |
+| **SEC-5** | `writeJSONError` interpolates `msg` directly into JSON string — injection risk | Medium | `server/workspace.go:33` | ✅ Done (#50) |
 | **SEC-6** | `docker-compose.yml` has hardcoded secrets (NEXTAUTH_SECRET, SALT, POSTGRES_PASSWORD) | Medium | `docker-compose.yml` | ❌ Not done |
 | **SEC-4** | No `terraform state` output redaction for sensitive values | Low | `tools/state.go` | ❌ Not done |
-| **SEC-7** | No LICENSE file in repository | Medium | — | ❌ Not done |
+| **SEC-7** | No LICENSE file in repository | Medium | — | ✅ Done (#51) |
 
 #### 4.2.3 Resilience / Resource Management
 
 | ID | Finding | Severity | File(s) | Status |
 |---|---|---|---|---|
-| **MF-3** | `buildWorkspaceContext` reads ALL `.tf` files with no file count, per-file size, or total size cap — OOM risk on monorepos | **High** | `agent/agent.go` | ❌ Not done |
-| **NH-2** | `agent.Query()` accumulates entire LLM response in `msgBuf` with no size cap | Medium | `agent/agent.go` | ❌ Not done |
+| **MF-3** | `buildWorkspaceContext` reads ALL `.tf` files with no file count, per-file size, or total size cap — OOM risk on monorepos | **High** | `agent/agent.go` | ✅ Done (#50) |
+| **NH-2** | `agent.Query()` accumulates entire LLM response in `msgBuf` with no size cap | Medium | `agent/agent.go` | ✅ Done (#50) |
 | **SF-2** | `ExecRunner.Run` has no dedicated timeout — relies solely on caller context | Medium | `tools/runner.go` | ❌ Not done |
 | **NH-1** | No max concurrent chat streams semaphore | Medium | `server/server.go` | ❌ Not done |
 | **SF-6** | No `event: error` sent to active SSE streams on SIGTERM | Low | `server/server.go` | ❌ Not done |
@@ -155,39 +247,39 @@
 | ID | Finding | Severity | File(s) | Status |
 |---|---|---|---|---|
 | **DX-5** | No CONTRIBUTING.md | Medium | — | ❌ Not done |
-| **DX-6** | No LICENSE file | **High** | — | ❌ Not done |
+| **DX-6** | No LICENSE file | **High** | — | ✅ Done (#51) |
 | **DX-7** | `docker-compose.yml` uses deprecated `version: "3.9"` key | Low | `docker-compose.yml` | ❌ Not done |
 
 ---
 
 ## 5. Prioritised Work Items
 
-### Priority 1 — Critical (do next, blocks trust/safety)
+### Priority 1 — Critical (do next, blocks trust/safety) — ✅ COMPLETE
 
 These items represent **security vulnerabilities, data loss risks, or broken observability** that should be fixed before any feature work.
 
-| ID | Item | Issue | Effort | Impact |
-|---|---|---|---|---|
-| **MF-2** | Body size limits on `/api/workspace/create` + `/api/file` PUT | #50 | ~5 LOC | Prevents OOM crash |
-| **MF-3** | Cap `buildWorkspaceContext` (max files, max file size, max total) | #50 | ~20 LOC | Prevents OOM on monorepos |
-| **MF-1** | Wire dead `httpRequestsTotal` + `httpDurationSeconds` metrics | #50 | ~30 LOC | Metrics actually work |
-| **SEC-5** | Fix `writeJSONError` JSON injection | #50 | ~5 LOC | Prevents response injection |
-| **SEC-7** / **DX-6** | Add LICENSE file | #51 | 1 file | Legal — blocks any open-source use |
-| **LOG-2** | Add `"chat complete"` success log | #50 | ~5 LOC | Can confirm successful responses |
+| ID | Item | Issue | Status |
+|---|---|---|---|
+| **MF-2** | Body size limits on `/api/workspace/create` + `/api/file` PUT | #50 | ✅ Done |
+| **MF-3** | Cap `buildWorkspaceContext` (max files, max file size, max total) | #50 | ✅ Done |
+| **MF-1** | Wire dead `httpRequestsTotal` + `httpDurationSeconds` metrics | #50 | ✅ Done |
+| **SEC-5** | Fix `writeJSONError` JSON injection | #50 | ✅ Done |
+| **SEC-7** / **DX-6** | Add LICENSE file | #51 | ✅ Done |
+| **LOG-2** | Add `"chat complete"` success log | #50 | ✅ Done |
 
-**Estimated total: ~65 LOC + 1 file. One branch, one PR, ~2 hours.**
+**All Priority 1 items completed as of 2026-02-25.**
 
 ### Priority 2 — High (this week)
 
-| ID | Item | Issue | Effort |
+| ID | Item | Issue | Status |
 |---|---|---|---|
-| **SEC-2** | `--workspace-root` flag to confine file operations | #52 | ~50 LOC |
-| **CI-2** | Add `govulncheck` to CI workflow | — (create) | ~10 LOC |
-| **TEST-1** | Unit tests for `internal/tools` | #53 | ~200 LOC |
-| **TEST-5** | Unit tests for `internal/rag` | #53 | ~150 LOC |
-| **SEC-6** | Move docker-compose hardcoded secrets to `.env` reference | — | Config change |
-| **CFG-8** | Config validation at startup (required fields, valid ranges) | #40 | ~40 LOC |
-| **NH-2** | Cap response buffer in `agent.Query()` | #50 | ~10 LOC |
+| **SEC-2** | `--workspace-root` flag to confine file operations | #52 | ✅ Done |
+| **NH-2** | Cap response buffer in `agent.Query()` | #50 | ✅ Done |
+| **CI-2** | Add `govulncheck` to CI workflow | — (create) | ❌ Not done |
+| **TEST-1** | Unit tests for `internal/tools` | #53 | ❌ Not done |
+| **TEST-5** | Unit tests for `internal/rag` | #53 | ❌ Not done |
+| **SEC-6** | Move docker-compose hardcoded secrets to `.env` reference | — | ❌ Not done |
+| **CFG-8** | Config validation at startup (required fields, valid ranges) | #40 | ❌ Not done |
 
 ### Priority 3 — Medium (this sprint / 2 weeks)
 
@@ -260,6 +352,8 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-02-25 | Adopt Alpha → Beta → RC → GA release lifecycle | Internal project needs real-world testing before claiming stability. RCs are pre-GA only. |
+| 2026-02-25 | Define Beta blockers as Priority 1 + critical tests | Security hardening and basic test coverage required before external early adopters. |
 | 2026-02-22 | YAML-first configuration across repo | Cloud-native standard. `config.yaml` for settings, `.env` for secrets only. |
 | 2026-02-22 | Backstage integration as catalog + scaffolder only | No runtime dependency on Backstage. Self-service provisioning. |
 | 2026-02-20 | Do NOT build accelerator/framework | Rule of Three — only 1 domain impl. Eino provides agent framework. |
