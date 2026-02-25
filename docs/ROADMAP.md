@@ -250,6 +250,13 @@ Once Beta is declared, focus shifts to:
 | **DX-6** | No LICENSE file | **High** | — | ✅ Done (#51) |
 | **DX-7** | `docker-compose.yml` uses deprecated `version: "3.9"` key | Low | `docker-compose.yml` | ❌ Not done |
 
+#### 4.2.7 Provider / Backend
+
+| ID | Finding | Severity | File(s) | Status |
+|---|---|---|---|---|
+| **CODEX-1** | Azure Codex `Stream()` falls back to `Generate()` — tokens appear all at once, not incrementally | Low | `provider/azure_codex.go:248` | Known limitation |
+| **RAG-5** | Bedrock/Gemini embedders not implemented — `tfai ingest` with these providers returns clear error | Low | `rag/embedder.go` | Known limitation |
+
 ---
 
 ## 5. Prioritised Work Items

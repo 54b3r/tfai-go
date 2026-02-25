@@ -2,7 +2,7 @@
 
 **Purpose:** Step-by-step guide for verifying every feature of tfai-go after any code change. Designed to be followed without AI assistance.
 
-**Last updated:** 2026-02-24 (v0.29.0 — generate model override)
+**Last updated:** 2026-02-25 (v0.30.0 — Azure Codex support)
 
 ---
 
@@ -12,6 +12,7 @@
 2. [Build & Gate Verification](#2-build--gate-verification)
 3. [CLI Smoke Tests](#3-cli-smoke-tests)
    - [3.8 Generate Model Override](#38-generate-model-override)
+   - [3.9 Azure Codex (GPT-5.2-Codex)](#39-azure-codex-gpt-52-codex)
 4. [Server Startup & Health](#4-server-startup--health)
 5. [API Endpoint Tests](#5-api-endpoint-tests)
 6. [Web UI Smoke Tests](#6-web-ui-smoke-tests)
@@ -362,6 +363,140 @@ kill %1
 ```bash
 rm -rf /tmp/gen-default /tmp/gen-openai /tmp/gen-azure /tmp/gen-partial
 unset GENERATE_MODEL_PROVIDER GENERATE_MODEL GENERATE_AZURE_DEPLOYMENT GENERATE_AZURE_VERSION GENERATE_MODEL_ID
+```
+
+---
+
+## 3.9 Azure Codex (GPT-5.2-Codex)
+
+Azure AI Foundry's GPT-5.2-Codex model uses a **different API** than standard Azure OpenAI. This section verifies the integration works end-to-end.
+
+### Key Differences from Standard Azure OpenAI
+
+| Aspect | Standard Azure OpenAI | Azure Codex |
+|--------|----------------------|-------------|
+| Endpoint | `/openai/deployments/{name}/chat/completions` | `/openai/responses` |
+| Auth | `api-key` header | `Authorization: Bearer` header |
+| Request body | `messages` array | `input` array |
+| Response body | `choices` array | `output` array |
+| Deployment | Required (`AZURE_OPENAI_DEPLOYMENT`) | Not used (model specified in body) |
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MODEL_PROVIDER` | Yes | Must be `azure` |
+| `AZURE_OPENAI_API_KEY` | Yes | Your Azure OpenAI API key |
+| `AZURE_OPENAI_ENDPOINT` | Yes | Azure resource endpoint (e.g., `https://myresource.openai.azure.com`) |
+| `AZURE_OPENAI_CODEX` | Yes | Must be `true` to enable Codex mode |
+| `AZURE_OPENAI_CODEX_MODEL` | No | Model name (default: `gpt-5.2-codex`) |
+| `AZURE_OPENAI_API_VERSION` | No | API version (default: `2025-04-01-preview`) |
+
+### 3.9.1 Basic ask command
+
+```bash
+export MODEL_PROVIDER=azure
+export AZURE_OPENAI_API_KEY=your-api-key
+export AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+export AZURE_OPENAI_CODEX=true
+
+./bin/tfai ask "what is terraform?"
+```
+
+**Expected:** Streaming response from GPT-5.2-Codex. Check logs for:
+```
+time=... level=INFO msg="provider initialised" provider=azure codex=true model=gpt-5.2-codex
+```
+
+### 3.9.2 Generate command with Codex
+
+```bash
+mkdir -p /tmp/tfai-codex-test
+./bin/tfai generate --out /tmp/tfai-codex-test "S3 bucket with versioning"
+```
+
+**Expected:**
+- `.tf` files written to `/tmp/tfai-codex-test/`
+- Response should be high-quality Terraform code (Codex is optimized for code generation)
+
+```bash
+ls -la /tmp/tfai-codex-test/
+cat /tmp/tfai-codex-test/main.tf
+```
+
+### 3.9.3 Server mode with Codex
+
+```bash
+./bin/tfai serve &
+sleep 2
+
+curl -s http://localhost:8080/api/ready | jq .
+```
+
+**Expected:**
+```json
+{
+  "ready": true,
+  "checks": [
+    {"name": "azure", "ok": true}
+  ]
+}
+```
+
+```bash
+curl -s -N -X POST http://localhost:8080/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "write a simple terraform variable"}'
+```
+
+**Expected:** SSE stream with Terraform code response.
+
+```bash
+# Stop the server
+kill %1
+```
+
+### 3.9.4 Codex with tool calling
+
+The Codex implementation supports tool calling (terraform_plan, terraform_state, etc.). Test with a workspace:
+
+```bash
+mkdir -p /tmp/tfai-codex-tools
+echo 'resource "null_resource" "test" {}' > /tmp/tfai-codex-tools/main.tf
+
+./bin/tfai ask --dir /tmp/tfai-codex-tools "what resources are in my workspace?"
+```
+
+**Expected:** Response should reference the `null_resource.test` resource, demonstrating workspace context was passed correctly.
+
+### 3.9.5 Error handling — invalid credentials
+
+```bash
+AZURE_OPENAI_API_KEY=invalid-key ./bin/tfai ask "hello"
+```
+
+**Expected:** Clear error message:
+```
+codex: HTTP 401: {"error":{"code":"401","message":"Access denied..."}}
+```
+
+### 3.9.6 Fallback to standard Azure (Codex disabled)
+
+```bash
+# Disable Codex mode — should use standard Azure OpenAI endpoint
+unset AZURE_OPENAI_CODEX
+export AZURE_OPENAI_DEPLOYMENT=gpt-4o  # Required for standard mode
+
+./bin/tfai ask "what is terraform?"
+```
+
+**Expected:** Uses standard Azure OpenAI endpoint (not `/openai/responses`).
+
+### Cleanup
+
+```bash
+rm -rf /tmp/tfai-codex-test /tmp/tfai-codex-tools
+unset AZURE_OPENAI_CODEX AZURE_OPENAI_CODEX_MODEL
 ```
 
 ---
@@ -1341,6 +1476,7 @@ These are documented issues that will cause unexpected behaviour during testing.
 | Shutdown timeout (10s) < Chat timeout (5m) | SF-6 | Active SSE streams are killed during shutdown without error event |
 | Bedrock/Gemini embedders not implemented | RAG-5 | `tfai ingest` with `MODEL_PROVIDER=bedrock` or `gemini` returns a clear error |
 | HTML stripping is regex-based | RAG-6 | Script/style tag content may appear in chunks; good enough for Terraform Registry docs |
+| Azure Codex streaming is simulated | CODEX-1 | Stream() falls back to Generate() then emits single message; tokens appear all at once |
 
 ---
 
@@ -1363,6 +1499,11 @@ Use this checklist after any change:
 [ ] curl GET /metrics                  — Prometheus output present
 [ ] Browser http://localhost:8080      — UI loads
 [ ] Ctrl+C on server                   — clean shutdown, exit 0
+
+# Azure Codex (requires Azure AI Foundry access)
+[ ] AZURE_OPENAI_CODEX=true tfai ask   — uses /openai/responses endpoint
+[ ] tfai generate with Codex           — generates quality Terraform code
+[ ] tfai serve with Codex + /api/ready — azure check passes
 
 # RAG pipeline (requires Qdrant running)
 [ ] tfai ingest --provider aws --url <url>   — chunks ingested, logged
