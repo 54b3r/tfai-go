@@ -791,6 +791,10 @@ rm -rf /tmp/tfai-smoke-ws /tmp/tfai-scaffold-test
 
 **Requires:** Server running (`./bin/tfai serve`)
 
+Run after any change to `Query()`, `parseAgentOutput()`, `applyFiles()`, the system prompt, or the frontend.
+
+### 6.1 Basic UI verification
+
 1. **Open browser** → `http://localhost:8080`
 2. **Verify page loads** — you should see a chat interface and a workspace panel on the left
 3. **Set workspace directory** — enter an absolute path to a directory containing `.tf` files
@@ -798,16 +802,80 @@ rm -rf /tmp/tfai-smoke-ws /tmp/tfai-scaffold-test
 5. **Send a chat message** — type a Terraform question and press Enter/Send
 6. **Verify streaming** — tokens should appear incrementally (not all at once)
 7. **Verify SSE completion** — the input should re-enable after streaming finishes
-8. **Click a file** — verify file content displays in the editor panel
-9. **Edit and save** — modify content in the editor, click Save, verify the file on disk changed
-10. **Generate files via chat** — ask "generate an S3 bucket with versioning" with a workspace set. Verify files appear in the workspace panel.
 
-### If auth is enabled (`TFAI_API_KEY` set)
+### 6.2 LLM file generation via UI
 
-11. **Refresh the page** — an API key modal should appear
-12. **Enter the correct key** — chat and workspace should work
-13. **Enter a wrong key** — requests should fail with 401
-14. **Open a new incognito window** — modal should appear again (key is in `sessionStorage`)
+```bash
+# Create a test workspace
+mkdir -p /tmp/tfai-ui-smoke
+```
+
+1. In the **Workspace** sidebar, enter `/tmp/tfai-ui-smoke` and click **→** to load it
+2. In the chat input, send: `Generate a simple S3 bucket with versioning enabled`
+3. Verify expected behaviour:
+
+| # | What to check | Expected |
+|---|---------------|----------|
+| 1 | Chat bubble content | Shows a human-readable **summary sentence**, NOT raw JSON |
+| 2 | File tree (sidebar) | Refreshes automatically without a manual reload |
+| 3 | Files on disk | `ls /tmp/tfai-ui-smoke` shows `.tf` files (e.g. `main.tf`, `variables.tf`) |
+| 4 | File contents | `cat /tmp/tfai-ui-smoke/main.tf` contains valid HCL, not JSON |
+
+### 6.3 Module path handling (optional)
+
+Send: `Generate a reusable S3 module with a root caller`
+
+**Expected:** `ls /tmp/tfai-ui-smoke/modules/s3/` shows `main.tf`, `variables.tf`, `outputs.tf`.
+
+### 6.4 File editor tests
+
+1. **Click a file** in the sidebar → verify file content displays in the editor panel
+2. **Edit and save** — modify content, click **Save**, verify:
+   - Unsaved indicator disappears
+   - `cat <workspace>/<file>` shows the updated content
+3. **Discuss file** — with a file open, click **Discuss** → agent responds with context-aware advice
+
+### 6.5 Workspace scaffolding
+
+```bash
+mkdir -p /tmp/tfai-scaffold-ui
+```
+
+1. Enter `/tmp/tfai-scaffold-ui` in the workspace input
+2. Click **Scaffold starter files**
+3. **Expected:** `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` appear in the file tree
+
+### 6.6 Scaffolding security — non-existent directory
+
+1. Enter a path that does not exist: `/tmp/tfai-does-not-exist`
+2. Click **Scaffold starter files**
+3. **Expected:** Error response — no directory created on disk
+
+```bash
+ls /tmp/tfai-does-not-exist  # must not exist
+```
+
+### 6.7 If auth is enabled (`TFAI_API_KEY` set)
+
+1. **Refresh the page** — an API key modal should appear
+2. **Enter the correct key** — chat and workspace should work
+3. **Enter a wrong key** — requests should fail with 401
+4. **Open a new incognito window** — modal should appear again (key is in `sessionStorage`)
+
+### 6.8 Cleanup
+
+```bash
+rm -rf /tmp/tfai-ui-smoke /tmp/tfai-scaffold-ui
+```
+
+### UI Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| Raw JSON appears in chat bubble | `parseAgentOutput` failed or LLM did not follow schema | Check system prompt and LLM response in server logs |
+| File tree does not refresh | `event: files_written` SSE frame not received | Check DevTools → Network → `/api/chat` response stream |
+| No files on disk | `applyFiles` returned an error | Check server stderr for `agent: Query: failed to apply files` |
+| Summary is empty | LLM returned JSON with empty `summary` field | System prompt may need reinforcement |
 
 ---
 
@@ -961,14 +1029,56 @@ curl -s http://localhost:8080/api/health > /dev/null
 
 ### 9.4 Langfuse tracing (optional)
 
-Requires Langfuse running (`make up` starts it on `localhost:3000`).
+Run after any change to `internal/tracing/`, `serve.go` tracing wiring, or the Langfuse callback integration.
 
-1. Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env`
-2. Start the server: `make run`
-3. Send a chat request
-4. Open Langfuse UI at `http://localhost:3000`
-5. Navigate to Traces → verify a trace with the session ID appears
-6. Verify the trace contains model generation spans
+**Requires:** Langfuse running (`make up` starts it on `localhost:3000`)
+
+#### Setup
+
+```bash
+# 1. Start Langfuse
+make up
+
+# 2. Create account at http://localhost:3000, then create a project
+
+# 3. Generate API keys: Settings → API Keys → Create new API key
+
+# 4. Export credentials
+export LANGFUSE_HOST=http://localhost:3000
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+```
+
+#### Verify tracing is enabled
+
+```bash
+./bin/tfai serve
+```
+
+**Expected startup log:**
+```json
+{"level":"INFO","msg":"langfuse tracing enabled"}
+```
+
+If you see `langfuse tracing disabled` — the env vars are not exported (use `export`, not just assignment).
+
+#### Send a request and verify traces
+
+1. Open http://localhost:8080, set workspace, and send a chat message
+2. Open http://localhost:3000 → your project → **Traces**
+3. A new trace should appear for the request
+4. Expand it — expect to see:
+   - LLM call node with model name, token counts, and latency
+   - Tool call nodes (if any tools were invoked)
+   - RAG retrieval node (if RAG is configured)
+
+#### Langfuse Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| No traces appear | Env vars not exported | Use `export LANGFUSE_PUBLIC_KEY=...` |
+| `langfuse tracing disabled` log | Env vars not reaching process | Use inline prefix or export |
+| Traces appear but are empty | Flush not called | Ensure `defer flush()` in `serve.go` |
 
 ---
 
