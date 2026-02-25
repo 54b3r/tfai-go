@@ -41,3 +41,6 @@ workspace/
 
 # Qdrant local data (if running outside docker)
 qdrant_storage/
+
+# server config
+config.yaml

@@ -159,6 +159,7 @@ echo 'resource "aws_s3_bucket" "test" { bucket = "my-bucket" }' > /tmp/tfai-test
 ### 3.4 Generate
 
 ```bash
+mkdir -p /tmp/tfai-gen-test
 ./bin/tfai generate --out /tmp/tfai-gen-test "S3 bucket with versioning and server-side encryption"
 ```
 

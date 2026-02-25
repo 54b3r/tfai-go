@@ -62,6 +62,6 @@ history:
   # db_path: disabled      # set to "disabled" to turn off
 
 # tracing:
-#   public_key: ""         # prefer LANGFUSE_PUBLIC_KEY env var
-#   secret_key: ""         # prefer LANGFUSE_SECRET_KEY env var
-#   host: ""               # prefer LANGFUSE_HOST env var
+#   public_key: ""                # prefer LANGFUSE_PUBLIC_KEY env var
+#   secret_key: ""                # prefer LANGFUSE_SECRET_KEY env var
+#   host: "http://localhost:3000" # prefer LANGFUSE_HOST env var

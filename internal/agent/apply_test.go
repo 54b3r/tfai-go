@@ -107,10 +107,11 @@ func TestApplyFilesNoPathDoubling(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		filePath  string // path returned by the LLM in the JSON envelope
-		wantFile  string // expected file location relative to workspace root
-		wantError bool
+		name           string
+		filePath       string // path returned by the LLM in the JSON envelope
+		wantFile       string // expected file location relative to workspace root
+		wantError      bool
+		prefixWithRoot bool // if true, filePath is prefixed with the temp dir to simulate LLM echoing the absolute path
 	}{
 		{
 			name:     "relative path — no doubling",
@@ -127,6 +128,18 @@ func TestApplyFilesNoPathDoubling(t *testing.T) {
 			filePath: "mydir/main.tf",
 			wantFile: "mydir/main.tf",
 		},
+		{
+			name:           "llm echoes absolute workspace root — stripped",
+			filePath:       "main.tf",
+			wantFile:       "main.tf",
+			prefixWithRoot: true,
+		},
+		{
+			name:           "llm echoes absolute workspace root with subdir — stripped",
+			filePath:       "modules/eks/main.tf",
+			wantFile:       "modules/eks/main.tf",
+			prefixWithRoot: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -134,9 +147,13 @@ func TestApplyFilesNoPathDoubling(t *testing.T) {
 			t.Parallel()
 
 			dir := t.TempDir()
+			fp := tc.filePath
+			if tc.prefixWithRoot {
+				fp = filepath.Join(dir, tc.filePath)
+			}
 			output := &TerraformAgentOutput{
 				Summary: "regression: " + tc.name,
-				Files:   []GeneratedFile{{Path: tc.filePath, Content: "# content"}},
+				Files:   []GeneratedFile{{Path: fp, Content: "# content"}},
 			}
 
 			err := applyFiles(output, dir)
