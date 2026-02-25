@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -117,6 +118,12 @@ func newAzureCodex(_ context.Context, cfg *Config) (model.ToolCallingChatModel, 
 	if apiVersion == "" {
 		apiVersion = "2025-04-01-preview"
 	}
+
+	slog.Info("azure codex mode enabled",
+		slog.String("model", modelName),
+		slog.String("endpoint", cfg.AzureOpenAI.Endpoint),
+		slog.String("api_version", apiVersion),
+	)
 
 	return &azureCodexClient{
 		endpoint:          cfg.AzureOpenAI.Endpoint,

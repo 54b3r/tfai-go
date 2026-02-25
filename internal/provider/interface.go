@@ -197,11 +197,16 @@ func NewHealthCheckConfig(b Backend, cfg *Config) HealthCheckConfig {
 			check:        bearerAuthCheck,
 		}
 	case BackendAzure:
+		// Codex mode uses Bearer auth; standard Azure uses api-key header
+		checkFn := azureAPIKeyCheck
+		if cfg.AzureOpenAI.Codex {
+			checkFn = bearerAuthCheck
+		}
 		return &healthCheckCfg{
 			url:          cfg.AzureOpenAI.Endpoint + "/openai/models?api-version=" + cfg.AzureOpenAI.APIVersion,
 			providerType: b,
 			apiKey:       cfg.AzureOpenAI.APIKey,
-			check:        azureAPIKeyCheck,
+			check:        checkFn,
 		}
 	case BackendBedrock:
 		return &healthCheckCfg{

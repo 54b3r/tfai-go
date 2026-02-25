@@ -66,6 +66,8 @@ var auditKeys = []auditEntry{
 	{"AZURE_OPENAI_API_KEY", true},
 	{"AZURE_OPENAI_ENDPOINT", false},
 	{"AZURE_OPENAI_DEPLOYMENT", false},
+	{"AZURE_OPENAI_CODEX", false},
+	{"AZURE_OPENAI_CODEX_MODEL", false},
 	{"GOOGLE_API_KEY", true},
 	{"GEMINI_MODEL", false},
 	{"AWS_REGION", false},

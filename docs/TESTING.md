@@ -405,8 +405,12 @@ export AZURE_OPENAI_CODEX=true
 
 **Expected:** Streaming response from GPT-5.2-Codex. Check logs for:
 ```
-time=... level=INFO msg="provider initialised" provider=azure codex=true model=gpt-5.2-codex
+time=... level=INFO msg="serve starting" provider=azure
+time=... level=INFO msg="azure codex mode enabled" model=gpt-5.2-codex endpoint=https://... api_version=2025-04-01-preview
+time=... level=INFO msg="provider initialised" provider=azure
 ```
+
+> **Tip:** The `azure codex mode enabled` log line confirms Codex mode is active. If you don't see this, check that `AZURE_OPENAI_CODEX=true` is set.
 
 ### 3.9.2 Generate command with Codex
 
@@ -426,7 +430,12 @@ cat /tmp/tfai-codex-test/main.tf
 
 ### 3.9.3 Server mode with Codex
 
+> **Important:** Ensure the environment variables from 3.9.1 are still set before starting the server.
+
 ```bash
+# Verify env vars are set (should show "azure" and "true")
+echo "MODEL_PROVIDER=$MODEL_PROVIDER, CODEX=$AZURE_OPENAI_CODEX"
+
 ./bin/tfai serve &
 sleep 2
 
@@ -442,6 +451,8 @@ curl -s http://localhost:8080/api/ready | jq .
   ]
 }
 ```
+
+> **Note:** The health check uses Bearer auth (not api-key header) when Codex mode is enabled. If you see `"name": "ollama"` instead of `"name": "azure"`, verify `MODEL_PROVIDER=azure` is set.
 
 ```bash
 curl -s -N -X POST http://localhost:8080/api/chat \
@@ -471,7 +482,10 @@ echo 'resource "null_resource" "test" {}' > /tmp/tfai-codex-tools/main.tf
 
 ### 3.9.5 Error handling — invalid credentials
 
+> **Important:** Other env vars from 3.9.1 must still be set (MODEL_PROVIDER, ENDPOINT, CODEX).
+
 ```bash
+# Override just the API key for this test
 AZURE_OPENAI_API_KEY=invalid-key ./bin/tfai ask "hello"
 ```
 
@@ -495,8 +509,14 @@ export AZURE_OPENAI_DEPLOYMENT=gpt-4o  # Required for standard mode
 ### Cleanup
 
 ```bash
+# Remove test directories
 rm -rf /tmp/tfai-codex-test /tmp/tfai-codex-tools
+
+# Unset Codex-specific env vars
 unset AZURE_OPENAI_CODEX AZURE_OPENAI_CODEX_MODEL
+
+# Optional: unset all Azure env vars to restore clean state
+# unset MODEL_PROVIDER AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_DEPLOYMENT
 ```
 
 ---

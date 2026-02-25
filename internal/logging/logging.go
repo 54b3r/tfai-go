@@ -21,6 +21,9 @@ type contextKey struct{}
 // New constructs a [*slog.Logger] from environment variables.
 // LOG_FORMAT selects the handler (json for production, text for local dev).
 // LOG_LEVEL sets the minimum severity level.
+//
+// This also sets the default slog handler so that any code using slog.Info()
+// directly (without a logger instance) uses the same format.
 func New() *slog.Logger {
 	level := parseLevel(os.Getenv("LOG_LEVEL"))
 
@@ -33,7 +36,9 @@ func New() *slog.Logger {
 		handler = slog.NewJSONHandler(os.Stderr, opts)
 	}
 
-	return slog.New(handler)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+	return logger
 }
 
 // WithLogger returns a copy of ctx carrying logger.
