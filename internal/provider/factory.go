@@ -100,6 +100,8 @@ func ConfigFromEnv() *Config {
 			Deployment:        os.Getenv("AZURE_OPENAI_DEPLOYMENT"),
 			APIVersion:        getEnvOrDefault("AZURE_OPENAI_API_VERSION", "2025-04-01-preview"),
 			ReasoningOverride: getEnvBoolPtr("AZURE_OPENAI_REASONING"),
+			Codex:             os.Getenv("AZURE_OPENAI_CODEX") == "true",
+			CodexModel:        getEnvOrDefault("AZURE_OPENAI_CODEX_MODEL", "gpt-5.2-codex"),
 		},
 		Bedrock: ProviderBedrock{
 			AWSRegion: getEnvOrDefault("AWS_REGION", "us-east-1"),

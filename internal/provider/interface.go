@@ -46,6 +46,12 @@ type ProviderAzureOpenAI struct {
 	// overriding auto-detection. nil = auto-detect from deployment name.
 	// Set AZURE_OPENAI_REASONING=true to force on, =false to force off.
 	ReasoningOverride *bool
+	// Codex enables GPT-5.2-Codex mode which uses the /openai/responses endpoint
+	// with Bearer auth instead of the standard chat completions endpoint.
+	// Set AZURE_OPENAI_CODEX=true to enable.
+	Codex bool
+	// CodexModel is the model name for codex mode (default: gpt-5.2-codex).
+	CodexModel string
 }
 
 // ProviderBedrock holds configuration for AWS Bedrock.
@@ -237,7 +243,8 @@ func (c *Config) Validate() error {
 		if c.AzureOpenAI.Endpoint == "" {
 			return fmt.Errorf("provider: %q requires AZURE_OPENAI_ENDPOINT to be set", c.Backend)
 		}
-		if c.AzureOpenAI.Deployment == "" {
+		// Deployment not required when Codex mode is enabled (uses /openai/responses endpoint)
+		if c.AzureOpenAI.Deployment == "" && !c.AzureOpenAI.Codex {
 			return fmt.Errorf("provider: %q requires AZURE_OPENAI_DEPLOYMENT to be set", c.Backend)
 		}
 	case BackendBedrock:
