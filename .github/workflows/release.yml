@@ -1,12 +1,27 @@
 name: Release
 
-# Triggers when a version tag is pushed (e.g. git tag v1.2.3 && git push --tags).
-# This workflow builds binaries for all supported platforms and creates a
-# GitHub Release with the binaries attached as downloadable assets.
+# Triggers when a version tag is pushed (e.g. git tag v1.2.3 && git push --tags),
+# or manually via workflow_dispatch to re-release an existing tag with different
+# settings (e.g. promote an alpha from pre-release to full release).
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag to release (e.g. v0.30.0-alpha)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as pre-release? (auto = detect from tag suffix)"
+        required: true
+        type: choice
+        options:
+          - auto
+          - "true"
+          - "false"
+        default: auto
 
 jobs:
   release:
@@ -20,6 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # full history needed for git describe to resolve the tag
+          ref: ${{ inputs.tag_name || github.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -27,20 +43,30 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Resolve version metadata from the triggering tag.
+      # Resolve version metadata from the triggering tag or manual input.
       - name: Set version variables
         id: vars
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          # Use manual input tag_name if provided, otherwise use the pushed tag.
+          VERSION="${{ inputs.tag_name || github.ref_name }}"
           echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-          # Detect if this is a pre-release (rc, alpha, beta)
-          if [[ "$VERSION" =~ -(rc|alpha|beta) ]]; then
+          # Determine pre-release status.
+          # Manual override takes precedence; "auto" (or tag push) detects from suffix.
+          OVERRIDE="${{ inputs.prerelease }}"
+          if [[ "$OVERRIDE" == "true" ]]; then
             echo "PRERELEASE=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [[ "$OVERRIDE" == "false" ]]; then
             echo "PRERELEASE=false" >> "$GITHUB_OUTPUT"
+          else
+            # Auto-detect from tag suffix (rc, alpha, beta)
+            if [[ "$VERSION" =~ -(rc|alpha|beta) ]]; then
+              echo "PRERELEASE=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "PRERELEASE=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       # Run the full test gate before releasing — never ship a broken binary.
@@ -87,10 +113,12 @@ jobs:
           cat checksums.txt
 
       # Create the GitHub Release and attach all binaries + checksums.
-      # Pre-releases (rc, alpha, beta) are marked as such and won't show as "latest".
+      # Pre-releases are auto-detected from tag suffix (rc, alpha, beta) but can be
+      # overridden via workflow_dispatch to promote any release to "latest".
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.vars.outputs.VERSION }}
           name: ${{ steps.vars.outputs.VERSION }}
           prerelease: ${{ steps.vars.outputs.PRERELEASE == 'true' }}
           generate_release_notes: true # auto-generates notes from merged PRs/commits
