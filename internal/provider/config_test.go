@@ -93,6 +93,89 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: "AZURE_OPENAI_DEPLOYMENT",
 		},
 
+		// ── Azure Codex ──────────────────────────────────────────────────────
+		{
+			name: "azure-codex/valid without deployment",
+			cfg: Config{
+				Backend: BackendAzure,
+				AzureOpenAI: ProviderAzureOpenAI{
+					APIKey:     "key",
+					Endpoint:   "https://my.openai.azure.com",
+					APIVersion: "2025-04-01-preview",
+					Codex: &Codex{
+						Enabled:          true,
+						Model:            "gpt-5.2-codex",
+						DefaultMaxTokens: CodexDefaultMaxTokens,
+					},
+				},
+			},
+		},
+		{
+			name: "azure-codex/valid with all fields",
+			cfg: Config{
+				Backend: BackendAzure,
+				AzureOpenAI: ProviderAzureOpenAI{
+					APIKey:     "key",
+					Endpoint:   "https://my.openai.azure.com",
+					APIVersion: "2025-04-01-preview",
+					Codex: &Codex{
+						Enabled:              true,
+						Model:                "gpt-5.2-codex",
+						DefaultMaxTokens:     32768,
+						DefaultContext:       150000,
+						HardMaxTokens:        65536,
+						HardMaxContextTokens: 300000,
+					},
+				},
+			},
+		},
+		{
+			name: "azure-codex/disabled requires deployment",
+			cfg: Config{
+				Backend: BackendAzure,
+				AzureOpenAI: ProviderAzureOpenAI{
+					APIKey:   "key",
+					Endpoint: "https://my.openai.azure.com",
+					Codex:    &Codex{Enabled: false},
+				},
+			},
+			wantErr: "AZURE_OPENAI_DEPLOYMENT",
+		},
+		{
+			name: "azure-codex/nil codex requires deployment",
+			cfg: Config{
+				Backend: BackendAzure,
+				AzureOpenAI: ProviderAzureOpenAI{
+					APIKey:   "key",
+					Endpoint: "https://my.openai.azure.com",
+					Codex:    nil,
+				},
+			},
+			wantErr: "AZURE_OPENAI_DEPLOYMENT",
+		},
+		{
+			name: "azure-codex/missing api key",
+			cfg: Config{
+				Backend: BackendAzure,
+				AzureOpenAI: ProviderAzureOpenAI{
+					Endpoint: "https://my.openai.azure.com",
+					Codex:    &Codex{Enabled: true, Model: "gpt-5.2-codex"},
+				},
+			},
+			wantErr: "AZURE_OPENAI_API_KEY",
+		},
+		{
+			name: "azure-codex/missing endpoint",
+			cfg: Config{
+				Backend: BackendAzure,
+				AzureOpenAI: ProviderAzureOpenAI{
+					APIKey: "key",
+					Codex:  &Codex{Enabled: true, Model: "gpt-5.2-codex"},
+				},
+			},
+			wantErr: "AZURE_OPENAI_ENDPOINT",
+		},
+
 		// ── Bedrock ───────────────────────────────────────────────────────────
 		{
 			name: "bedrock/valid",
@@ -156,6 +239,109 @@ func TestConfigValidate(t *testing.T) {
 				t.Errorf("Validate() error = %q, want substring %q", err.Error(), tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestIsCodexEnabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  ProviderAzureOpenAI
+		want bool
+	}{
+		{
+			name: "codex enabled",
+			cfg:  ProviderAzureOpenAI{Codex: &Codex{Enabled: true}},
+			want: true,
+		},
+		{
+			name: "codex disabled",
+			cfg:  ProviderAzureOpenAI{Codex: &Codex{Enabled: false}},
+			want: false,
+		},
+		{
+			name: "codex nil",
+			cfg:  ProviderAzureOpenAI{Codex: nil},
+			want: false,
+		},
+		{
+			name: "empty struct",
+			cfg:  ProviderAzureOpenAI{},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := tc.cfg.isCodexEnabled()
+			if got != tc.want {
+				t.Errorf("isCodexEnabled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCodexConstants(t *testing.T) {
+	t.Parallel()
+
+	// Verify constants have sensible values
+	tests := []struct {
+		name     string
+		got      int
+		wantMin  int
+		wantMax  int
+		wantDesc string
+	}{
+		{
+			name:     "CodexDefaultMaxTokens",
+			got:      CodexDefaultMaxTokens,
+			wantMin:  16384,
+			wantMax:  65536,
+			wantDesc: "default output tokens should be 16K-64K",
+		},
+		{
+			name:     "CodexDefaultContextTokens",
+			got:      CodexDefaultContextTokens,
+			wantMin:  100000,
+			wantMax:  200000,
+			wantDesc: "default context should be 100K-200K",
+		},
+		{
+			name:     "CodexHardMaxTokens",
+			got:      CodexHardMaxTokens,
+			wantMin:  32768,
+			wantMax:  131072,
+			wantDesc: "hard max output should be 32K-128K",
+		},
+		{
+			name:     "CodexHardMaxContextTokens",
+			got:      CodexHardMaxContextTokens,
+			wantMin:  200000,
+			wantMax:  400000,
+			wantDesc: "hard max context should be 200K-400K",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if tc.got < tc.wantMin || tc.got > tc.wantMax {
+				t.Errorf("%s = %d, want between %d and %d (%s)",
+					tc.name, tc.got, tc.wantMin, tc.wantMax, tc.wantDesc)
+			}
+		})
+	}
+
+	// Verify relationships between constants
+	if CodexDefaultMaxTokens > CodexHardMaxTokens {
+		t.Errorf("CodexDefaultMaxTokens (%d) should be <= CodexHardMaxTokens (%d)",
+			CodexDefaultMaxTokens, CodexHardMaxTokens)
+	}
+	if CodexDefaultContextTokens > CodexHardMaxContextTokens {
+		t.Errorf("CodexDefaultContextTokens (%d) should be <= CodexHardMaxContextTokens (%d)",
+			CodexDefaultContextTokens, CodexHardMaxContextTokens)
 	}
 }
 

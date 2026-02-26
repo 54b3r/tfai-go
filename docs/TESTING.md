@@ -2,7 +2,7 @@
 
 **Purpose:** Step-by-step guide for verifying every feature of tfai-go after any code change. Designed to be followed without AI assistance.
 
-**Last updated:** 2026-02-24 (v0.29.0 — generate model override)
+**Last updated:** 2026-02-25 (v0.30.0 — Azure Codex support)
 
 ---
 
@@ -12,6 +12,7 @@
 2. [Build & Gate Verification](#2-build--gate-verification)
 3. [CLI Smoke Tests](#3-cli-smoke-tests)
    - [3.8 Generate Model Override](#38-generate-model-override)
+   - [3.9 Azure Codex (GPT-5.2-Codex)](#39-azure-codex-gpt-52-codex)
 4. [Server Startup & Health](#4-server-startup--health)
 5. [API Endpoint Tests](#5-api-endpoint-tests)
 6. [Web UI Smoke Tests](#6-web-ui-smoke-tests)
@@ -366,6 +367,160 @@ unset GENERATE_MODEL_PROVIDER GENERATE_MODEL GENERATE_AZURE_DEPLOYMENT GENERATE_
 
 ---
 
+## 3.9 Azure Codex (GPT-5.2-Codex)
+
+Azure AI Foundry's GPT-5.2-Codex model uses a **different API** than standard Azure OpenAI. This section verifies the integration works end-to-end.
+
+### Key Differences from Standard Azure OpenAI
+
+| Aspect | Standard Azure OpenAI | Azure Codex |
+|--------|----------------------|-------------|
+| Endpoint | `/openai/deployments/{name}/chat/completions` | `/openai/responses` |
+| Auth | `api-key` header | `Authorization: Bearer` header |
+| Request body | `messages` array | `input` array |
+| Response body | `choices` array | `output` array |
+| Deployment | Required (`AZURE_OPENAI_DEPLOYMENT`) | Not used (model specified in body) |
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MODEL_PROVIDER` | Yes | Must be `azure` |
+| `AZURE_OPENAI_API_KEY` | Yes | Your Azure OpenAI API key |
+| `AZURE_OPENAI_ENDPOINT` | Yes | Azure resource endpoint (e.g., `https://myresource.openai.azure.com`) |
+| `AZURE_OPENAI_CODEX` | Yes | Must be `true` to enable Codex mode |
+| `AZURE_OPENAI_CODEX_MODEL` | No | Model name (default: `gpt-5.2-codex`) |
+| `AZURE_OPENAI_API_VERSION` | No | API version (default: `2025-04-01-preview`) |
+
+### 3.9.1 Basic ask command
+
+```bash
+export MODEL_PROVIDER=azure
+export AZURE_OPENAI_API_KEY=your-api-key
+export AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+export AZURE_OPENAI_CODEX=true
+
+./bin/tfai ask "what is terraform?"
+```
+
+**Expected:** Streaming response from GPT-5.2-Codex. Check logs for:
+```
+time=... level=INFO msg="serve starting" provider=azure
+time=... level=INFO msg="azure codex mode enabled" model=gpt-5.2-codex endpoint=https://... api_version=2025-04-01-preview
+time=... level=INFO msg="provider initialised" provider=azure
+```
+
+> **Tip:** The `azure codex mode enabled` log line confirms Codex mode is active. If you don't see this, check that `AZURE_OPENAI_CODEX=true` is set.
+
+### 3.9.2 Generate command with Codex
+
+```bash
+mkdir -p /tmp/tfai-codex-test
+./bin/tfai generate --out /tmp/tfai-codex-test "S3 bucket with versioning"
+```
+
+**Expected:**
+- `.tf` files written to `/tmp/tfai-codex-test/`
+- Response should be high-quality Terraform code (Codex is optimized for code generation)
+
+```bash
+ls -la /tmp/tfai-codex-test/
+cat /tmp/tfai-codex-test/main.tf
+```
+
+### 3.9.3 Server mode with Codex
+
+> **Important:** Ensure the environment variables from 3.9.1 are still set before starting the server.
+
+```bash
+# Verify env vars are set (should show "azure" and "true")
+echo "MODEL_PROVIDER=$MODEL_PROVIDER, CODEX=$AZURE_OPENAI_CODEX"
+
+./bin/tfai serve &
+sleep 2
+
+curl -s http://localhost:8080/api/ready | jq .
+```
+
+**Expected:**
+```json
+{
+  "ready": true,
+  "checks": [
+    {"name": "azure", "ok": true}
+  ]
+}
+```
+
+> **Note:** The health check uses Bearer auth (not api-key header) when Codex mode is enabled. If you see `"name": "ollama"` instead of `"name": "azure"`, verify `MODEL_PROVIDER=azure` is set.
+
+```bash
+curl -s -N -X POST http://localhost:8080/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "write a simple terraform variable"}'
+```
+
+**Expected:** SSE stream with Terraform code response.
+
+```bash
+# Stop the server
+kill %1
+```
+
+### 3.9.4 Codex with tool calling
+
+The Codex implementation supports tool calling (terraform_plan, terraform_state, etc.). Test with a workspace:
+
+```bash
+mkdir -p /tmp/tfai-codex-tools
+echo 'resource "null_resource" "test" {}' > /tmp/tfai-codex-tools/main.tf
+
+./bin/tfai ask --dir /tmp/tfai-codex-tools "what resources are in my workspace?"
+```
+
+**Expected:** Response should reference the `null_resource.test` resource, demonstrating workspace context was passed correctly.
+
+### 3.9.5 Error handling — invalid credentials
+
+> **Important:** Other env vars from 3.9.1 must still be set (MODEL_PROVIDER, ENDPOINT, CODEX).
+
+```bash
+# Override just the API key for this test
+AZURE_OPENAI_API_KEY=invalid-key ./bin/tfai ask "hello"
+```
+
+**Expected:** Clear error message:
+```
+codex: HTTP 401: {"error":{"code":"401","message":"Access denied..."}}
+```
+
+### 3.9.6 Fallback to standard Azure (Codex disabled)
+
+```bash
+# Disable Codex mode — should use standard Azure OpenAI endpoint
+unset AZURE_OPENAI_CODEX
+export AZURE_OPENAI_DEPLOYMENT=gpt-4o  # Required for standard mode
+
+./bin/tfai ask "what is terraform?"
+```
+
+**Expected:** Uses standard Azure OpenAI endpoint (not `/openai/responses`).
+
+### Cleanup
+
+```bash
+# Remove test directories
+rm -rf /tmp/tfai-codex-test /tmp/tfai-codex-tools
+
+# Unset Codex-specific env vars
+unset AZURE_OPENAI_CODEX AZURE_OPENAI_CODEX_MODEL
+
+# Optional: unset all Azure env vars to restore clean state
+# unset MODEL_PROVIDER AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_DEPLOYMENT
+```
+
+---
+
 ## 4. Server Startup & Health
 
 ### 4.1 Start the server
@@ -636,6 +791,10 @@ rm -rf /tmp/tfai-smoke-ws /tmp/tfai-scaffold-test
 
 **Requires:** Server running (`./bin/tfai serve`)
 
+Run after any change to `Query()`, `parseAgentOutput()`, `applyFiles()`, the system prompt, or the frontend.
+
+### 6.1 Basic UI verification
+
 1. **Open browser** → `http://localhost:8080`
 2. **Verify page loads** — you should see a chat interface and a workspace panel on the left
 3. **Set workspace directory** — enter an absolute path to a directory containing `.tf` files
@@ -643,16 +802,80 @@ rm -rf /tmp/tfai-smoke-ws /tmp/tfai-scaffold-test
 5. **Send a chat message** — type a Terraform question and press Enter/Send
 6. **Verify streaming** — tokens should appear incrementally (not all at once)
 7. **Verify SSE completion** — the input should re-enable after streaming finishes
-8. **Click a file** — verify file content displays in the editor panel
-9. **Edit and save** — modify content in the editor, click Save, verify the file on disk changed
-10. **Generate files via chat** — ask "generate an S3 bucket with versioning" with a workspace set. Verify files appear in the workspace panel.
 
-### If auth is enabled (`TFAI_API_KEY` set)
+### 6.2 LLM file generation via UI
 
-11. **Refresh the page** — an API key modal should appear
-12. **Enter the correct key** — chat and workspace should work
-13. **Enter a wrong key** — requests should fail with 401
-14. **Open a new incognito window** — modal should appear again (key is in `sessionStorage`)
+```bash
+# Create a test workspace
+mkdir -p /tmp/tfai-ui-smoke
+```
+
+1. In the **Workspace** sidebar, enter `/tmp/tfai-ui-smoke` and click **→** to load it
+2. In the chat input, send: `Generate a simple S3 bucket with versioning enabled`
+3. Verify expected behaviour:
+
+| # | What to check | Expected |
+|---|---------------|----------|
+| 1 | Chat bubble content | Shows a human-readable **summary sentence**, NOT raw JSON |
+| 2 | File tree (sidebar) | Refreshes automatically without a manual reload |
+| 3 | Files on disk | `ls /tmp/tfai-ui-smoke` shows `.tf` files (e.g. `main.tf`, `variables.tf`) |
+| 4 | File contents | `cat /tmp/tfai-ui-smoke/main.tf` contains valid HCL, not JSON |
+
+### 6.3 Module path handling (optional)
+
+Send: `Generate a reusable S3 module with a root caller`
+
+**Expected:** `ls /tmp/tfai-ui-smoke/modules/s3/` shows `main.tf`, `variables.tf`, `outputs.tf`.
+
+### 6.4 File editor tests
+
+1. **Click a file** in the sidebar → verify file content displays in the editor panel
+2. **Edit and save** — modify content, click **Save**, verify:
+   - Unsaved indicator disappears
+   - `cat <workspace>/<file>` shows the updated content
+3. **Discuss file** — with a file open, click **Discuss** → agent responds with context-aware advice
+
+### 6.5 Workspace scaffolding
+
+```bash
+mkdir -p /tmp/tfai-scaffold-ui
+```
+
+1. Enter `/tmp/tfai-scaffold-ui` in the workspace input
+2. Click **Scaffold starter files**
+3. **Expected:** `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` appear in the file tree
+
+### 6.6 Scaffolding security — non-existent directory
+
+1. Enter a path that does not exist: `/tmp/tfai-does-not-exist`
+2. Click **Scaffold starter files**
+3. **Expected:** Error response — no directory created on disk
+
+```bash
+ls /tmp/tfai-does-not-exist  # must not exist
+```
+
+### 6.7 If auth is enabled (`TFAI_API_KEY` set)
+
+1. **Refresh the page** — an API key modal should appear
+2. **Enter the correct key** — chat and workspace should work
+3. **Enter a wrong key** — requests should fail with 401
+4. **Open a new incognito window** — modal should appear again (key is in `sessionStorage`)
+
+### 6.8 Cleanup
+
+```bash
+rm -rf /tmp/tfai-ui-smoke /tmp/tfai-scaffold-ui
+```
+
+### UI Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| Raw JSON appears in chat bubble | `parseAgentOutput` failed or LLM did not follow schema | Check system prompt and LLM response in server logs |
+| File tree does not refresh | `event: files_written` SSE frame not received | Check DevTools → Network → `/api/chat` response stream |
+| No files on disk | `applyFiles` returned an error | Check server stderr for `agent: Query: failed to apply files` |
+| Summary is empty | LLM returned JSON with empty `summary` field | System prompt may need reinforcement |
 
 ---
 
@@ -806,14 +1029,56 @@ curl -s http://localhost:8080/api/health > /dev/null
 
 ### 9.4 Langfuse tracing (optional)
 
-Requires Langfuse running (`make up` starts it on `localhost:3000`).
+Run after any change to `internal/tracing/`, `serve.go` tracing wiring, or the Langfuse callback integration.
 
-1. Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env`
-2. Start the server: `make run`
-3. Send a chat request
-4. Open Langfuse UI at `http://localhost:3000`
-5. Navigate to Traces → verify a trace with the session ID appears
-6. Verify the trace contains model generation spans
+**Requires:** Langfuse running (`make up` starts it on `localhost:3000`)
+
+#### Setup
+
+```bash
+# 1. Start Langfuse
+make up
+
+# 2. Create account at http://localhost:3000, then create a project
+
+# 3. Generate API keys: Settings → API Keys → Create new API key
+
+# 4. Export credentials
+export LANGFUSE_HOST=http://localhost:3000
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+```
+
+#### Verify tracing is enabled
+
+```bash
+./bin/tfai serve
+```
+
+**Expected startup log:**
+```json
+{"level":"INFO","msg":"langfuse tracing enabled"}
+```
+
+If you see `langfuse tracing disabled` — the env vars are not exported (use `export`, not just assignment).
+
+#### Send a request and verify traces
+
+1. Open http://localhost:8080, set workspace, and send a chat message
+2. Open http://localhost:3000 → your project → **Traces**
+3. A new trace should appear for the request
+4. Expand it — expect to see:
+   - LLM call node with model name, token counts, and latency
+   - Tool call nodes (if any tools were invoked)
+   - RAG retrieval node (if RAG is configured)
+
+#### Langfuse Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| No traces appear | Env vars not exported | Use `export LANGFUSE_PUBLIC_KEY=...` |
+| `langfuse tracing disabled` log | Env vars not reaching process | Use inline prefix or export |
+| Traces appear but are empty | Flush not called | Ensure `defer flush()` in `serve.go` |
 
 ---
 
@@ -1341,6 +1606,7 @@ These are documented issues that will cause unexpected behaviour during testing.
 | Shutdown timeout (10s) < Chat timeout (5m) | SF-6 | Active SSE streams are killed during shutdown without error event |
 | Bedrock/Gemini embedders not implemented | RAG-5 | `tfai ingest` with `MODEL_PROVIDER=bedrock` or `gemini` returns a clear error |
 | HTML stripping is regex-based | RAG-6 | Script/style tag content may appear in chunks; good enough for Terraform Registry docs |
+| Azure Codex streaming is simulated | CODEX-1 | Stream() falls back to Generate() then emits single message; tokens appear all at once |
 
 ---
 
@@ -1363,6 +1629,11 @@ Use this checklist after any change:
 [ ] curl GET /metrics                  — Prometheus output present
 [ ] Browser http://localhost:8080      — UI loads
 [ ] Ctrl+C on server                   — clean shutdown, exit 0
+
+# Azure Codex (requires Azure AI Foundry access)
+[ ] AZURE_OPENAI_CODEX=true tfai ask   — uses /openai/responses endpoint
+[ ] tfai generate with Codex           — generates quality Terraform code
+[ ] tfai serve with Codex + /api/ready — azure check passes
 
 # RAG pipeline (requires Qdrant running)
 [ ] tfai ingest --provider aws --url <url>   — chunks ingested, logged

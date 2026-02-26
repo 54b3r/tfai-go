@@ -60,10 +60,18 @@ func isAzureReasoningModel(deployment string) bool {
 // newAzure constructs a ToolCallingChatModel backed by Azure OpenAI Service.
 // Reads AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_DEPLOYMENT.
 //
+// When AZURE_OPENAI_CODEX=true, uses the /openai/responses endpoint with Bearer auth
+// for GPT-5.2-Codex models instead of the standard chat completions endpoint.
+//
 // Reasoning-model detection is automatic: deployment names matching known o-series
 // or codex prefixes skip temperature and max_tokens (which those models reject).
 // Set AZURE_OPENAI_REASONING=true/false to override auto-detection explicitly.
 func newAzure(ctx context.Context, cfg *Config) (model.ToolCallingChatModel, error) {
+	// Route to codex client if enabled
+	if cfg.AzureOpenAI.isCodexEnabled() {
+		return newAzureCodex(ctx, cfg)
+	}
+
 	reasoning := isAzureReasoningModel(cfg.AzureOpenAI.Deployment)
 	if cfg.AzureOpenAI.ReasoningOverride != nil {
 		reasoning = *cfg.AzureOpenAI.ReasoningOverride
