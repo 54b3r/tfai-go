@@ -287,6 +287,7 @@ These items represent **security vulnerabilities, data loss risks, or broken obs
 | **TEST-5** | Unit tests for `internal/rag` | #53 | ❌ Not done |
 | **SEC-6** | Move docker-compose hardcoded secrets to `.env` reference | — | ❌ Not done |
 | **CFG-8** | Config validation at startup (required fields, valid ranges) | #40 | ❌ Not done |
+| **UX-1** | Session tracking for CLI `ask` command (multi-turn conversations) | #66 | ❌ Not done |
 
 ### Priority 3 — Medium (this sprint / 2 weeks)
 
@@ -299,6 +300,7 @@ These items represent **security vulnerabilities, data loss risks, or broken obs
 | **DX-5** | CONTRIBUTING.md | — (create) | Prose |
 | **CFG-10** | `${ENV_VAR}` interpolation in YAML config values | #40 | ~30 LOC |
 | **CFG-9** | Refactor `serve` to read from unified config struct, not env directly | #40 | ~80 LOC |
+| **PERF-1** | Prompt caching for cost/latency optimization | #67 | ~100 LOC |
 
 ### Priority 4 — Backlog (future sprints)
 
@@ -321,6 +323,7 @@ These items represent **security vulnerabilities, data loss risks, or broken obs
 | **RBAC-1** | Multi-user auth (JWT/OIDC) | — | ~200 LOC |
 | **TEST-4** | Integration test suite | — | ~300 LOC |
 | **DASH-1** | Grafana dashboard JSON | — | ~200 LOC |
+| **CFG-11** | Provider-specific default token limits | #68 | ~50 LOC |
 
 ---
 
@@ -336,6 +339,7 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 - [x] Unit tests: `internal/tools` (TEST-1), `internal/rag` (TEST-5) → **#53**
 - [x] Response buffer cap (NH-2) → included in **#50**
 - [ ] Config validation at startup (CFG-8) — tracked under **#40**
+- [x] Session tracking for CLI `ask` (UX-1) → **#66**
 
 ### Create when starting (Priority 3–4 items)
 - [ ] Terraform command timeout (SF-2)
@@ -344,6 +348,7 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 - [ ] CONTRIBUTING.md (DX-5)
 - [ ] Config env var interpolation (CFG-10)
 - [ ] Config struct refactor (CFG-9)
+- [x] Prompt caching (PERF-1) → **#67**
 - [ ] MCP server spike (MCP-1)
 - [ ] Helm chart (K8S-1)
 - [ ] Multi-arch Dockerfile (K8S-4)
@@ -352,6 +357,7 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 - [ ] Multi-user auth (RBAC-1)
 - [ ] Integration tests (TEST-4)
 - [ ] Grafana dashboard (DASH-1)
+- [x] Provider-specific token defaults (CFG-11) → **#68**
 
 ---
 

@@ -20,38 +20,43 @@ Config Section
 type Backend string
 
 const (
-	// BackendOllama selects a locally running Ollama instance.
-	BackendOllama Backend = "ollama"
-	// BackendOpenAI selects the OpenAI API.
-	BackendOpenAI Backend = "openai"
-	// BackendAzure selects Azure OpenAI Service.
-	BackendAzure Backend = "azure"
-	// BackendBedrock selects AWS Bedrock.
-	BackendBedrock Backend = "bedrock"
-	// BackendGemini selects Google Gemini via Vertex AI or AI Studio.
-	BackendGemini Backend = "gemini"
+	// Hard maximums - never exceed regardless of config
+	CodexHardMaxTokens        = 65536  // 64K - sanity check
+	CodexHardMaxContextTokens = 300000 // 300K - leave 100K buffer
+
+	// Recommended defaults by provider
+	CodexDefaultMaxTokens     = 32768  // 32K
+	CodexDefaultContextTokens = 150000 // 150K
+
+	// Supported Backend Model Providers, each expectes the standard crednetials chain env vars, with some
+	// extra configurations.
+	BackendOllama  Backend = "ollama"  // BackendOllama selects a locally running Ollama instance.
+	BackendOpenAI  Backend = "openai"  // BackendOpenAI selects the OpenAI API.
+	BackendAzure   Backend = "azure"   // BackendAzure selects Azure OpenAI Service.
+	BackendBedrock Backend = "bedrock" // BackendBedrock selects AWS Bedrock.
+	BackendGemini  Backend = "gemini"  // BackendGemini selects Google Gemini via Vertex AI or AI Studio.
 )
 
 // ProviderAzureOpenAI holds configuration for Azure OpenAI Service.
 type ProviderAzureOpenAI struct {
-	// APIKey is the Azure OpenAI API key (AZURE_OPENAI_API_KEY).
-	APIKey string
-	// Endpoint is the Azure OpenAI resource endpoint (AZURE_OPENAI_ENDPOINT).
-	Endpoint string
-	// Deployment is the Azure OpenAI deployment name (AZURE_OPENAI_DEPLOYMENT).
-	Deployment string
-	// APIVersion is the Azure OpenAI REST API version (AZURE_OPENAI_API_VERSION).
-	APIVersion string
-	// ReasoningOverride explicitly forces or disables reasoning-model mode,
-	// overriding auto-detection. nil = auto-detect from deployment name.
-	// Set AZURE_OPENAI_REASONING=true to force on, =false to force off.
-	ReasoningOverride *bool
-	// Codex enables GPT-5.2-Codex mode which uses the /openai/responses endpoint
-	// with Bearer auth instead of the standard chat completions endpoint.
-	// Set AZURE_OPENAI_CODEX=true to enable.
-	Codex bool
-	// CodexModel is the model name for codex mode (default: gpt-5.2-codex).
-	CodexModel string
+	APIKey            string // APIKey is the Azure OpenAI API key (AZURE_OPENAI_API_KEY).
+	Endpoint          string // Endpoint is the Azure OpenAI resource endpoint (AZURE_OPENAI_ENDPOINT).
+	Deployment        string // Deployment is the Azure OpenAI deployment name (AZURE_OPENAI_DEPLOYMENT).
+	APIVersion        string // APIVersion is the Azure OpenAI REST API version (AZURE_OPENAI_API_VERSION).
+	ReasoningOverride *bool  // ReasoningOverride overrides the tf code generation model from the standard Backend,  Set AZURE_OPENAI_REASONING=true to force on, =false to force off.
+	Codex             *Codex // Codex enables GPT-5.2-Codex through the /openai/responses endpoint. Set AZURE_OPENAI_CODEX=true to enable.
+}
+
+// Codex enables GPT-5.2-Codex mode which uses the /openai/responses endpoint
+// with Bearer auth instead of the standard chat completions endpoint.
+// Set AZURE_OPENAI_CODEX=true to enable.
+type Codex struct {
+	Enabled              bool
+	Model                string // Model is the model name for codex mode (default: gpt-5.2-codex).
+	DefaultMaxTokens     int    // DefaultMaxTokens is the max output tokens configuration for codex models
+	DefaultContext       int    // DefaultContext is the max output tokens configuration for codex models
+	HardMaxTokens        int    // HardMaxTokens is the hard configurable limit for DefaultMaxTokens configuration for codex models
+	HardMaxContextTokens int    // HardMaxContextTokens is the hard configurable limit for DefaultContext configuration for codex models
 }
 
 // ProviderBedrock holds configuration for AWS Bedrock.
@@ -109,10 +114,18 @@ type Config struct {
 	Tuning      SharedTuning        // Tuning holds shared generation parameters applied to all backends.
 }
 
+// isCodexEnabled ensures if someone constructs Config manually without initializing Codex
+// accessing cfg.AzureOpenAI.Codex.Enabled would panic
+func (c *ProviderAzureOpenAI) isCodexEnabled() bool {
+	return c.Codex != nil && c.Codex.Enabled
+}
+
 /*
 Generate Overrides
 */
 
+// GenerateOverrides holds the configurations for overriding the generation model for targeted coding model usage
+// when building terrform resources/modules.
 type GenerateOverrides struct {
 	Backend    Backend
 	Deployment string // Azure based Codex
@@ -199,7 +212,7 @@ func NewHealthCheckConfig(b Backend, cfg *Config) HealthCheckConfig {
 	case BackendAzure:
 		// Codex mode uses Bearer auth; standard Azure uses api-key header
 		checkFn := azureAPIKeyCheck
-		if cfg.AzureOpenAI.Codex {
+		if cfg.AzureOpenAI.isCodexEnabled() {
 			checkFn = bearerAuthCheck
 		}
 		return &healthCheckCfg{
@@ -249,7 +262,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("provider: %q requires AZURE_OPENAI_ENDPOINT to be set", c.Backend)
 		}
 		// Deployment not required when Codex mode is enabled (uses /openai/responses endpoint)
-		if c.AzureOpenAI.Deployment == "" && !c.AzureOpenAI.Codex {
+		if c.AzureOpenAI.Deployment == "" && !c.AzureOpenAI.isCodexEnabled() {
 			return fmt.Errorf("provider: %q requires AZURE_OPENAI_DEPLOYMENT to be set", c.Backend)
 		}
 	case BackendBedrock:

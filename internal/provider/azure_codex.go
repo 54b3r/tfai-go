@@ -49,10 +49,10 @@ type codexMessage struct {
 }
 
 type codexTool struct {
-	Type        string        `json:"type"`
-	Name        string        `json:"name"`
-	Description string        `json:"description,omitempty"`
-	Parameters  any           `json:"parameters,omitempty"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Parameters  any    `json:"parameters,omitempty"`
 }
 
 type codexToolCall struct {
@@ -68,29 +68,29 @@ type codexFunctionCall struct {
 
 // codexResponse is the response from the /openai/responses endpoint.
 type codexResponse struct {
-	ID     string              `json:"id"`
-	Object string              `json:"object"`
-	Status string              `json:"status"`
-	Model  string              `json:"model"`
-	Output []codexOutputItem   `json:"output"`
-	Usage  codexUsage          `json:"usage"`
-	Error  *codexError         `json:"error,omitempty"`
+	ID     string            `json:"id"`
+	Object string            `json:"object"`
+	Status string            `json:"status"`
+	Model  string            `json:"model"`
+	Output []codexOutputItem `json:"output"`
+	Usage  codexUsage        `json:"usage"`
+	Error  *codexError       `json:"error,omitempty"`
 }
 
 type codexOutputItem struct {
-	ID      string               `json:"id"`
-	Type    string               `json:"type"` // "reasoning" or "message"
-	Status  string               `json:"status,omitempty"`
-	Role    string               `json:"role,omitempty"`
-	Content []codexContentBlock  `json:"content,omitempty"`
+	ID      string              `json:"id"`
+	Type    string              `json:"type"` // "reasoning" or "message"
+	Status  string              `json:"status,omitempty"`
+	Role    string              `json:"role,omitempty"`
+	Content []codexContentBlock `json:"content,omitempty"`
 }
 
 type codexContentBlock struct {
-	Type      string          `json:"type"` // "output_text" or "tool_use"
-	Text      string          `json:"text,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Arguments string          `json:"arguments,omitempty"`
+	Type      string `json:"type"` // "output_text" or "tool_use"
+	Text      string `json:"text,omitempty"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 type codexUsage struct {
@@ -110,7 +110,7 @@ type codexError struct {
 // It reuses the AzureOpenAI config fields (APIKey, Endpoint, APIVersion) and adds
 // CodexModel for the model name.
 func newAzureCodex(_ context.Context, cfg *Config) (model.ToolCallingChatModel, error) {
-	modelName := cfg.AzureOpenAI.CodexModel
+	modelName := cfg.AzureOpenAI.Codex.Model
 	if modelName == "" {
 		modelName = "gpt-5.2-codex"
 	}

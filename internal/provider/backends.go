@@ -68,7 +68,7 @@ func isAzureReasoningModel(deployment string) bool {
 // Set AZURE_OPENAI_REASONING=true/false to override auto-detection explicitly.
 func newAzure(ctx context.Context, cfg *Config) (model.ToolCallingChatModel, error) {
 	// Route to codex client if enabled
-	if cfg.AzureOpenAI.Codex {
+	if cfg.AzureOpenAI.isCodexEnabled() {
 		return newAzureCodex(ctx, cfg)
 	}
 
