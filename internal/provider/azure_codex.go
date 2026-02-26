@@ -296,7 +296,7 @@ func convertTools(tools []*schema.ToolInfo) []codexTool {
 		var params any
 		if tool.ParamsOneOf != nil {
 			// Convert to JSON schema for the API
-			if jsonSchema, err := tool.ParamsOneOf.ToJSONSchema(); err == nil && jsonSchema != nil {
+			if jsonSchema, err := tool.ToJSONSchema(); err == nil && jsonSchema != nil {
 				params = jsonSchema
 			}
 		}

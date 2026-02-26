@@ -23,13 +23,10 @@ const (
 	// Hard maximums - never exceed regardless of config
 	CodexHardMaxTokens        = 65536  // 64K - sanity check
 	CodexHardMaxContextTokens = 300000 // 300K - leave 100K buffer
-
-	// Recommended defaults by provider
 	CodexDefaultMaxTokens     = 32768  // 32K
 	CodexDefaultContextTokens = 150000 // 150K
 
-	// Supported Backend Model Providers, each expectes the standard crednetials chain env vars, with some
-	// extra configurations.
+	// Supported Backend Model Providers, each expects the standard crednetials chain env vars, with some extra configurations.
 	BackendOllama  Backend = "ollama"  // BackendOllama selects a locally running Ollama instance.
 	BackendOpenAI  Backend = "openai"  // BackendOpenAI selects the OpenAI API.
 	BackendAzure   Backend = "azure"   // BackendAzure selects Azure OpenAI Service.
