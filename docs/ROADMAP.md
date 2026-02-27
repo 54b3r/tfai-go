@@ -3,8 +3,8 @@
 > **Single source of truth.** Every shipped feature, open gap, and planned item lives here.
 > Updated after every merge to `main`. Cross-referenced with GitHub Issues.
 
-**Last updated:** 2026-02-25
-**Current version:** v0.29.0
+**Last updated:** 2026-02-26
+**Current version:** v0.30.1-alpha
 **Maturity:** Alpha (see [Path to Beta](#path-to-beta))
 **Branch policy:** All work on feature branches → PR → merge → tag → update this file.
 **Changelog:** [CHANGELOG.md](../CHANGELOG.md)
@@ -33,7 +33,7 @@ Alpha (current) → Beta → RC → GA (v1.0.0)
 
 | Branch | Description | Status | Target Version |
 |--------|-------------|--------|----------------|
-| `feat/azure-codex-support` | Azure AI Foundry GPT-5.2-Codex support via `/openai/responses` endpoint | Ready for merge | v0.30.0 |
+| — | No branches in flight | — | — |
 
 ### Beta Blockers (Must Complete)
 
@@ -65,10 +65,10 @@ These items **must** be done before declaring Beta. Derived from Priority 1 + cr
 
 These items improve Beta quality but don't block the release.
 
-- [ ] **CI-2**: Add `govulncheck` to CI workflow
-- [ ] **SEC-6**: Move docker-compose hardcoded secrets to `.env` reference
+- [ ] **CI-2**: Add `govulncheck` to CI workflow (#70)
+- [ ] **SEC-6**: Move docker-compose hardcoded secrets to `.env` reference (#71)
 - [ ] **CFG-8**: Config validation at startup (required fields, valid ranges) (#40)
-- [ ] **DX-5**: Add CONTRIBUTING.md
+- [ ] **DX-5**: Add CONTRIBUTING.md (#72)
 
 ### Post-Beta / Path to GA
 
@@ -96,7 +96,8 @@ Once Beta is declared, focus shifts to:
 
 | Version | Date | Summary | Key PRs |
 |---|---|---|---|
-| **v0.30.0** | 2026-02-25 | Azure Codex support — GPT-5.2-Codex via `/openai/responses` endpoint, raw HTTP client | #63 (pending) |
+| **v0.30.1-alpha** | 2026-02-26 | Roadmap audit, release phase classification, release workflow dispatch override | #73 (pending) |
+| **v0.30.0-alpha** | 2026-02-26 | Azure Codex support — GPT-5.2-Codex via `/openai/responses` endpoint, raw HTTP client | #69 |
 | **v0.29.0** | 2026-02-25 | CI improvements — binary smoke tests, RC release support, docs updates, smoke test regression fixes | #59, #62 |
 | **v0.28.0** | 2026-02-24 | Generate model override — separate LLM for code generation via `GENERATE_*` env vars, golangci-lint v2 migration | #58 |
 | **v0.27.0** | 2026-02-23 | Security hardening — per-IP rate limiting, request ID header, audit log, structured startup/shutdown logging | #57 |
@@ -139,20 +140,28 @@ Once Beta is declared, focus shifts to:
 
 ## 3. Open GitHub Issues
 
-| # | Title | Category | Roadmap Tier | Priority |
+| # | Title | Category | Release Phase | Priority |
 |---|---|---|---|---|
-| **#61** | File-based audit logging with stdout control | Logging | Tier 2 | Medium |
-| **#60** | CLI logger inconsistency — unify slog, add `--output json` | Logging | Tier 2 | Medium |
-| **#53** | Unit tests for `internal/tools` and `internal/rag` | Testing | Tier 1 | **High — Beta blocker** |
-| **#46** | LLM-based metadata classification (`--classify` flag) | RAG | Tier 3 | Low |
-| **#40** | YAML config — hot-reload + multi-model support | Config | Tier 2 | Medium |
-| **#36** | RAG architecture review — naive vs advanced patterns | RAG | Tier 2 | Medium |
-| **#35** | RAG reranking pipeline — cross-encoder / RRF | RAG | Tier 3 | Low |
-| **#12** | Migrate UI to Vite + React | UI | Tier 3 | Low (blocked by MCP decision) |
-| **#11** | `.air.toml` + `make dev` for hot-reload | DX | Tier 2 | Medium |
-| **#10** | 3 Musketeers dev container | DX | Tier 3 | Low |
+| **#72** | Add CONTRIBUTING.md | DX | Beta | Medium |
+| **#71** | Move docker-compose secrets to `.env` reference | Security | Beta | Medium |
+| **#70** | Add `govulncheck` to CI workflow | CI | Alpha (Beta Blocker) | **High** |
+| **#68** | Provider-specific default token limits | Config | RC | Low |
+| **#67** | Prompt caching for cost/latency optimization | Performance | RC | Low |
+| **#66** | Session tracking for CLI `ask` command | UX | Beta | Medium |
+| **#64** | RAG ingest — detect and handle duplicate URL ingestion | RAG | RC | Medium |
+| **#63** | Tee LLM output to stdout during `generate` command | CLI | RC | Medium |
+| **#61** | File-based audit logging with stdout control | Logging | RC | Medium |
+| **#60** | CLI logger inconsistency — unify slog, add `--output json` | Logging | Beta | Medium |
+| **#53** | Unit tests for `internal/tools` and `internal/rag` | Testing | Alpha (Beta Blocker) | **High** |
+| **#46** | LLM-based metadata classification (`--classify` flag) | RAG | Post v1 | Low |
+| **#40** | YAML config — hot-reload + multi-model support | Config | Beta | Medium |
+| **#36** | RAG architecture review — naive vs advanced patterns | RAG | Post v1 | Medium |
+| **#35** | RAG reranking pipeline — cross-encoder / RRF | RAG | Post v1 | Low |
+| **#12** | Migrate UI to Vite + React | UI | Post v1 | Low |
+| **#11** | `.air.toml` + `make dev` for hot-reload | DX | RC | Medium |
+| **#10** | 3 Musketeers dev container | DX | Post v1 | Low |
 
-**Recently Closed:** #50 (hardening), #51 (LICENSE), #52 (workspace-root)
+**Recently Closed:** #50 (hardening), #51 (LICENSE), #52 (workspace-root), #65 (duplicate of #66)
 
 ---
 
@@ -194,7 +203,7 @@ Once Beta is declared, focus shifts to:
 | **SF-1** | No pprof debug endpoint | Low | — | ❌ Not done |
 | **OBS-1** | No business metrics (tool invocations, RAG docs injected, history trimmed) | Medium | — | ❌ Not done |
 | **OBS-3** | No Langfuse trace ID in structured logs | Low | — | ❌ Not done |
-| **CI-2** | CI missing `govulncheck` (local `make gate` has it, CI doesn't) | Medium | `.github/workflows/ci.yml` | ❌ Not done |
+| **CI-2** | CI missing `govulncheck` (local `make gate` has it, CI doesn't) | Medium | `.github/workflows/ci.yml` | ❌ Not done (#70) |
 | **CI-3** | CI missing binary smoke test | Low | `.github/workflows/ci.yml` | ✅ Done (#59) |
 | **CI-4** | No container image build/push in CI | Low | — | ❌ Not done |
 
@@ -205,7 +214,7 @@ Once Beta is declared, focus shifts to:
 | **MF-2** | No `MaxBytesReader` on `/api/workspace/create` or `/api/file` PUT — OOM risk | **High** | `server/workspace.go` | ✅ Done (#50) |
 | **SEC-2** | No `--workspace-root` flag to confine file operations to a directory | **High** | `server/workspace.go` | ✅ Done (#52) |
 | **SEC-5** | `writeJSONError` interpolates `msg` directly into JSON string — injection risk | Medium | `server/workspace.go:33` | ✅ Done (#50) |
-| **SEC-6** | `docker-compose.yml` has hardcoded secrets (NEXTAUTH_SECRET, SALT, POSTGRES_PASSWORD) | Medium | `docker-compose.yml` | ❌ Not done |
+| **SEC-6** | `docker-compose.yml` has hardcoded secrets (NEXTAUTH_SECRET, SALT, POSTGRES_PASSWORD) | Medium | `docker-compose.yml` | ❌ Not done (#71) |
 | **SEC-4** | No `terraform state` output redaction for sensitive values | Low | `tools/state.go` | ❌ Not done |
 | **SEC-7** | No LICENSE file in repository | Medium | — | ✅ Done (#51) |
 
@@ -246,7 +255,7 @@ Once Beta is declared, focus shifts to:
 
 | ID | Finding | Severity | File(s) | Status |
 |---|---|---|---|---|
-| **DX-5** | No CONTRIBUTING.md | Medium | — | ❌ Not done |
+| **DX-5** | No CONTRIBUTING.md | Medium | — | ❌ Not done (#72) |
 | **DX-6** | No LICENSE file | **High** | — | ✅ Done (#51) |
 | **DX-7** | `docker-compose.yml` uses deprecated `version: "3.9"` key | Low | `docker-compose.yml` | ❌ Not done |
 
@@ -282,10 +291,10 @@ These items represent **security vulnerabilities, data loss risks, or broken obs
 |---|---|---|---|
 | **SEC-2** | `--workspace-root` flag to confine file operations | #52 | ✅ Done |
 | **NH-2** | Cap response buffer in `agent.Query()` | #50 | ✅ Done |
-| **CI-2** | Add `govulncheck` to CI workflow | — (create) | ❌ Not done |
+| **CI-2** | Add `govulncheck` to CI workflow | #70 | ❌ Not done |
 | **TEST-1** | Unit tests for `internal/tools` | #53 | ❌ Not done |
 | **TEST-5** | Unit tests for `internal/rag` | #53 | ❌ Not done |
-| **SEC-6** | Move docker-compose hardcoded secrets to `.env` reference | — | ❌ Not done |
+| **SEC-6** | Move docker-compose hardcoded secrets to `.env` reference | #71 | ❌ Not done |
 | **CFG-8** | Config validation at startup (required fields, valid ranges) | #40 | ❌ Not done |
 | **UX-1** | Session tracking for CLI `ask` command (multi-turn conversations) | #66 | ❌ Not done |
 
@@ -297,7 +306,7 @@ These items represent **security vulnerabilities, data loss risks, or broken obs
 | **NH-1** | Max concurrent chat streams semaphore | — (create) | ~15 LOC |
 | **OBS-1** | Business metrics (tool invocations, RAG docs, history trim) | — (create) | ~35 LOC |
 | **DX-2** | Hot-reload dev server (`.air.toml` + `make dev`) | #11 | ~30 LOC |
-| **DX-5** | CONTRIBUTING.md | — (create) | Prose |
+| **DX-5** | CONTRIBUTING.md | #72 | Prose |
 | **CFG-10** | `${ENV_VAR}` interpolation in YAML config values | #40 | ~30 LOC |
 | **CFG-9** | Refactor `serve` to read from unified config struct, not env directly | #40 | ~80 LOC |
 | **PERF-1** | Prompt caching for cost/latency optimization | #67 | ~100 LOC |
@@ -335,7 +344,7 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 - [x] Hardening: dead metrics (MF-1), body limits (MF-2), workspace caps (MF-3), JSON injection (SEC-5), chat complete log (LOG-2) → **#50**
 - [x] LICENSE file → **#51**
 - [x] `--workspace-root` confinement (SEC-2) → **#52**
-- [ ] CI: add govulncheck (CI-2)
+- [x] CI: add govulncheck (CI-2) → **#70**
 - [x] Unit tests: `internal/tools` (TEST-1), `internal/rag` (TEST-5) → **#53**
 - [x] Response buffer cap (NH-2) → included in **#50**
 - [ ] Config validation at startup (CFG-8) — tracked under **#40**
@@ -345,7 +354,7 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 - [ ] Terraform command timeout (SF-2)
 - [ ] Max concurrent streams (NH-1)
 - [ ] Business metrics (OBS-1)
-- [ ] CONTRIBUTING.md (DX-5)
+- [x] CONTRIBUTING.md (DX-5) → **#72**
 - [ ] Config env var interpolation (CFG-10)
 - [ ] Config struct refactor (CFG-9)
 - [x] Prompt caching (PERF-1) → **#67**
@@ -365,6 +374,8 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-02-26 | All pre-GA tags must carry `-alpha`/`-beta`/`-rc.N` stage suffix | Eliminates ambiguity between "shipped but unstable" and GA. Tags like `v0.30.0` are invalid during pre-GA. |
+| 2026-02-26 | Classify all open issues by release phase (Alpha/Beta/RC/Post v1) | Ensures roadmap is actionable and priorities are clear at a glance. |
 | 2026-02-25 | Adopt Alpha → Beta → RC → GA release lifecycle | Internal project needs real-world testing before claiming stability. RCs are pre-GA only. |
 | 2026-02-25 | Define Beta blockers as Priority 1 + critical tests | Security hardening and basic test coverage required before external early adopters. |
 | 2026-02-22 | YAML-first configuration across repo | Cloud-native standard. `config.yaml` for settings, `.env` for secrets only. |
@@ -382,12 +393,18 @@ Items that exist in this roadmap but have **no GitHub issue yet**:
 
 ### Versioning Convention
 
+All pre-GA releases carry a **stage suffix** reflecting the project’s maturity:
+
 | Change Type | Version Bump | Example |
 |---|---|---|
 | Breaking changes | Major (when v1+) | v1.0.0 → v2.0.0 |
-| New features | Minor | v0.29.0 → v0.30.0 |
-| Bug fixes only | Patch | v0.29.0 → v0.29.1 |
-| Pre-release testing | RC suffix | v0.30.0-rc.1 |
+| New features | Minor | v0.30.0-alpha → v0.31.0-alpha |
+| Bug fixes only | Patch | v0.30.0-alpha → v0.30.1-alpha |
+| Stage promotion | Stage suffix change | v0.35.0-alpha → v0.35.0-beta |
+| Release candidate | RC suffix | v0.40.0-beta → v0.40.0-rc.1 |
+| GA release | Drop suffix | v1.0.0-rc.2 → v1.0.0 |
+
+**Stage suffixes:** `-alpha` (current) → `-beta` → `-rc.N` → (none = GA)
 
 ### Release Checklist
 
@@ -420,10 +437,10 @@ git push --tags
 
 ### Tag Format
 
-Tags **must** follow semantic versioning: `vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-rc.N`
+Tags **must** follow semantic versioning with stage suffix: `vMAJOR.MINOR.PATCH-STAGE`
 
-- ✅ `v0.30.0`, `v1.0.0`, `v0.30.0-rc.1`
-- ❌ `v0.30`, `0.30.0`, `release-0.30.0`
+- ✅ `v0.30.0-alpha`, `v0.35.0-beta`, `v1.0.0-rc.1`, `v1.0.0`
+- ❌ `v0.30`, `0.30.0`, `release-0.30.0`, `v0.30.0` (missing stage suffix during pre-GA)
 
 ### What the Release Workflow Does
 

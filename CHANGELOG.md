@@ -11,8 +11,27 @@ For detailed planning and roadmap, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+---
+
+## [0.30.1-alpha] - 2026-02-26
+
+### Changed
+- Release workflow now supports `workflow_dispatch` with prerelease override — allows promoting any alpha/beta/rc tag to a full release via the GitHub Actions UI
+
+### Fixed
+- ROADMAP.md: corrected current version to `v0.30.0-alpha`, fixed PR reference (#63 → #69), added release phase classification to open issues, added issue refs (#70–#72) to audit tables, updated versioning convention to require `-<stage>` suffix
+- CHANGELOG.md: moved Azure Codex entry to correct `[0.30.0-alpha]` section, fixed compare links
+
+---
+
+## [0.30.0-alpha] - 2026-02-26
+
 ### Added
-- Azure Codex support for GPT-5.2-Codex via `/openai/responses` endpoint (#63)
+- Azure Codex support for GPT-5.2-Codex via `/openai/responses` endpoint (#69)
+
+**PRs:** #69
 
 ---
 
@@ -170,7 +189,9 @@ For detailed planning and roadmap, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
-[Unreleased]: https://github.com/54b3r/tfai-go/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/54b3r/tfai-go/compare/v0.30.1-alpha...HEAD
+[0.30.1-alpha]: https://github.com/54b3r/tfai-go/compare/v0.30.0-alpha...v0.30.1-alpha
+[0.30.0-alpha]: https://github.com/54b3r/tfai-go/compare/v0.29.0...v0.30.0-alpha
 [0.29.0]: https://github.com/54b3r/tfai-go/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/54b3r/tfai-go/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/54b3r/tfai-go/compare/v0.25.0...v0.27.0
