@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -218,8 +219,103 @@ var envMapping = []struct {
 	{"LANGFUSE_HOST", func(c *Config) string { return c.Tracing.Host }},
 }
 
+// validProviders enumerates accepted values for model.provider.
+var validProviders = map[string]bool{
+	"ollama": true, "openai": true, "azure": true,
+	"bedrock": true, "gemini": true,
+}
+
+// validEmbeddingProviders enumerates accepted values for embedding.provider.
+var validEmbeddingProviders = map[string]bool{
+	"ollama": true, "openai": true, "azure": true,
+}
+
+// validLogLevels enumerates accepted values for logging.level.
+var validLogLevels = map[string]bool{
+	"debug": true, "info": true, "warn": true, "error": true,
+}
+
+// validLogFormats enumerates accepted values for logging.format.
+var validLogFormats = map[string]bool{
+	"json": true, "text": true,
+}
+
+// Validate checks that all fields in the config have valid values.
+// It is called by Load() after parsing so callers get a clear error at startup
+// rather than mysterious runtime failures.
+func (c *Config) Validate() error {
+	var errs []string
+
+	// --- Model ---
+	if c.Model.Provider != "" && !validProviders[c.Model.Provider] {
+		errs = append(errs, fmt.Sprintf(
+			"model.provider: invalid value %q (valid: ollama, openai, azure, bedrock, gemini)",
+			c.Model.Provider))
+	}
+	if c.Model.MaxTokens < 0 {
+		errs = append(errs, fmt.Sprintf("model.max_tokens: %d must be non-negative", c.Model.MaxTokens))
+	}
+	if c.Model.Temperature != 0 && (c.Model.Temperature < 0 || c.Model.Temperature > 1) {
+		errs = append(errs, fmt.Sprintf(
+			"model.temperature: %.2f is out of range [0.0, 1.0]", c.Model.Temperature))
+	}
+
+	// --- Embedding ---
+	if c.Embedding.Provider != "" && !validEmbeddingProviders[c.Embedding.Provider] {
+		errs = append(errs, fmt.Sprintf(
+			"embedding.provider: invalid value %q (valid: ollama, openai, azure)",
+			c.Embedding.Provider))
+	}
+	if c.Embedding.Dimensions < 0 {
+		errs = append(errs, fmt.Sprintf("embedding.dimensions: %d must be non-negative", c.Embedding.Dimensions))
+	}
+
+	// --- Server ---
+	if c.Server.Port != 0 && (c.Server.Port < 1 || c.Server.Port > 65535) {
+		errs = append(errs, fmt.Sprintf("server.port: %d is out of range [1, 65535]", c.Server.Port))
+	}
+
+	// --- Qdrant ---
+	if c.Qdrant.Port != 0 && (c.Qdrant.Port < 1 || c.Qdrant.Port > 65535) {
+		errs = append(errs, fmt.Sprintf("qdrant.port: %d is out of range [1, 65535]", c.Qdrant.Port))
+	}
+
+	// --- Logging ---
+	if c.Logging.Level != "" && !validLogLevels[c.Logging.Level] {
+		errs = append(errs, fmt.Sprintf(
+			"logging.level: invalid value %q (valid: debug, info, warn, error)",
+			c.Logging.Level))
+	}
+	if c.Logging.Format != "" && !validLogFormats[c.Logging.Format] {
+		errs = append(errs, fmt.Sprintf(
+			"logging.format: invalid value %q (valid: json, text)",
+			c.Logging.Format))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("config: validation failed:\n  - %s", strings.Join(errs, "\n  - "))
+	}
+	return nil
+}
+
+// mu guards the package-level loaded config.
+var (
+	mu     sync.RWMutex
+	loaded *Config
+)
+
+// Get returns the most recently loaded Config, or nil if Load has not been
+// called (i.e. running in env-var-only mode).
+func Get() *Config {
+	mu.RLock()
+	defer mu.RUnlock()
+	return loaded
+}
+
 // Load reads a YAML config file and applies non-empty values as environment
 // variables. Existing env vars are never overwritten (env always wins).
+// ${VAR} and $VAR references in YAML values are expanded from the process
+// environment before parsing (CFG-10).
 // Returns the path that was loaded, or empty string if no file was found.
 func Load(explicitPath string, log *slog.Logger) (string, error) {
 	path := resolveConfigPath(explicitPath)
@@ -233,9 +329,18 @@ func Load(explicitPath string, log *slog.Logger) (string, error) {
 		return "", fmt.Errorf("config: failed to read %s: %w", path, err)
 	}
 
+	// Expand ${VAR} / $VAR references so secrets can be kept in the
+	// environment while referenced from the YAML file (CFG-10).
+	expanded := os.ExpandEnv(string(data))
+
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return "", fmt.Errorf("config: failed to parse %s: %w", path, err)
+	}
+
+	// Validate before applying — fail fast on bad config (CFG-8).
+	if err := cfg.Validate(); err != nil {
+		return "", fmt.Errorf("config: %s: %w", path, err)
 	}
 
 	applied := 0
@@ -250,6 +355,11 @@ func Load(explicitPath string, log *slog.Logger) (string, error) {
 		_ = os.Setenv(m.envKey, yamlVal)
 		applied++
 	}
+
+	// Store parsed config for structured access (CFG-9).
+	mu.Lock()
+	loaded = &cfg
+	mu.Unlock()
 
 	log.Info("config: loaded YAML config",
 		slog.String("path", path),
