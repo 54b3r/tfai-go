@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -258,21 +259,46 @@ func New(ctx context.Context, cfg *Config) (*TerraformAgent, error) {
 	}, nil
 }
 
+// QueryMetrics contains performance metrics captured during a Query call.
+// These are used for benchmarking and comparing model performance.
+type QueryMetrics struct {
+	// InputTokens is the estimated token count of the input messages.
+	InputTokens int
+	// OutputTokens is the estimated token count of the generated response.
+	OutputTokens int
+	// Duration is the wall-clock time from first token request to last token received.
+	Duration time.Duration
+	// TokensPerSecond is OutputTokens / Duration.Seconds() (output throughput).
+	TokensPerSecond float64
+	// TimeToFirstToken is the time from stream start to the first content chunk.
+	TimeToFirstToken time.Duration
+}
+
 // Query sends a user message to the agent and streams the response to the
 // provided writer. If a RAG retriever is configured, relevant documentation
 // context is prepended to the message before it reaches the LLM.
 // If a conversation store is configured, prior turns are injected and the
 // new user message and assistant response are persisted after completion.
 func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir string, w io.Writer) (bool, error) {
+	_, filesWritten, err := a.QueryWithMetrics(ctx, userMessage, workspaceDir, w)
+	return filesWritten, err
+}
+
+// QueryWithMetrics is like Query but also returns performance metrics for
+// benchmarking and model comparison.
+func (a *TerraformAgent) QueryWithMetrics(ctx context.Context, userMessage, workspaceDir string, w io.Writer) (*QueryMetrics, bool, error) {
 	filesWritten := false
 	messages, err := a.buildMessages(ctx, userMessage, workspaceDir)
 	if err != nil {
-		return filesWritten, fmt.Errorf("agent: failed to build messages: %w", err)
+		return nil, filesWritten, fmt.Errorf("agent: failed to build messages: %w", err)
 	}
 
+	inputTokens := budget.EstimateMessages(messages)
+
+	streamStart := time.Now()
 	sr, err := a.reactAgent.Stream(ctx, messages)
 	if err != nil {
-		return filesWritten, fmt.Errorf("agent: stream failed: %w", err)
+		return nil, filesWritten, fmt.Errorf("agent: stream failed: %w", err)
 	}
 	defer sr.Close()
 
@@ -281,29 +307,58 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 	const maxResponseBytes = 4 << 20 // 4 MiB
 
 	var msgBuf strings.Builder
+	var ttft time.Duration
+	firstToken := true
 	for {
 		msg, err := sr.Recv()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return filesWritten, fmt.Errorf("agent: stream receive error: %w", err)
+			return nil, filesWritten, fmt.Errorf("agent: stream receive error: %w", err)
 		}
 		if msg != nil && msg.Content != "" {
+			if firstToken {
+				ttft = time.Since(streamStart)
+				firstToken = false
+			}
 			if msgBuf.Len()+len(msg.Content) > maxResponseBytes {
-				return filesWritten, fmt.Errorf("agent: response exceeded maximum size (%d bytes)", maxResponseBytes)
+				return nil, filesWritten, fmt.Errorf("agent: response exceeded maximum size (%d bytes)", maxResponseBytes)
 			}
 			if _, err := fmt.Fprint(&msgBuf, msg.Content); err != nil {
-				return filesWritten, fmt.Errorf("agent: write error: %w", err)
+				return nil, filesWritten, fmt.Errorf("agent: write error: %w", err)
 			}
 		}
 	}
+
+	duration := time.Since(streamStart)
+	outputTokens := budget.Estimate(msgBuf.String())
+	var tokPerSec float64
+	if duration.Seconds() > 0 {
+		tokPerSec = float64(outputTokens) / duration.Seconds()
+	}
+
+	metrics := &QueryMetrics{
+		InputTokens:      inputTokens,
+		OutputTokens:     outputTokens,
+		Duration:         duration,
+		TokensPerSecond:  tokPerSec,
+		TimeToFirstToken: ttft,
+	}
+
+	logging.FromContext(ctx).Info("query metrics",
+		slog.Int("input_tokens", metrics.InputTokens),
+		slog.Int("output_tokens", metrics.OutputTokens),
+		slog.Duration("duration", metrics.Duration),
+		slog.Float64("tokens_per_sec", metrics.TokensPerSecond),
+		slog.Duration("ttft", metrics.TimeToFirstToken),
+	)
 
 	if a.workspaceRoot != "" {
 		root := filepath.Clean(a.workspaceRoot)
 		target := filepath.Clean(workspaceDir)
 		if !strings.HasPrefix(target+string(filepath.Separator), root+string(filepath.Separator)) {
-			return false, fmt.Errorf("agent: workspaceDir %q is outside permitted root %q", workspaceDir, a.workspaceRoot)
+			return metrics, false, fmt.Errorf("agent: workspaceDir %q is outside permitted root %q", workspaceDir, a.workspaceRoot)
 		}
 	}
 	// If a workspace directory was provided, attempt to parse the buffered output
@@ -314,18 +369,18 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 		result, err := parseAgentOutput(msgBuf.String())
 		if err == nil && len(result.Files) > 0 {
 			if err := applyFiles(result, workspaceDir); err != nil {
-				return filesWritten, fmt.Errorf("agent: Query: failed to apply files: %w", err)
+				return metrics, filesWritten, fmt.Errorf("agent: Query: failed to apply files: %w", err)
 			}
 			filesWritten = true
 			// Stream the summary to the SSE writer, not stdout.
 			_, _ = fmt.Fprint(w, result.Summary)
-			return filesWritten, nil
+			return metrics, filesWritten, nil
 		}
 	}
 
 	// Not a terraform_generate result — stream the raw accumulated content.
 	if _, err := fmt.Fprint(w, msgBuf.String()); err != nil {
-		return filesWritten, fmt.Errorf("agent: write error: %w", err)
+		return metrics, filesWritten, fmt.Errorf("agent: write error: %w", err)
 	}
 
 	// Persist the turn to the conversation store (non-fatal on error).
@@ -338,7 +393,7 @@ func (a *TerraformAgent) Query(ctx context.Context, userMessage, workspaceDir st
 		}
 	}
 
-	return filesWritten, nil
+	return metrics, filesWritten, nil
 }
 
 // buildMessages constructs the message slice for the agent, optionally

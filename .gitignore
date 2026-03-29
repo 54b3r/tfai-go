@@ -45,3 +45,6 @@ qdrant_storage/
 
 # server config
 config.yaml
+
+# Benchmark output
+benchmark-results/
