@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,7 @@ func TestHandleFileRead_MissingPath(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/api/file?workspaceDir=/tmp", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/file?workspaceDir=/tmp", nil)
 	w := httptest.NewRecorder()
 
 	s.handleFileRead(w, req)
@@ -31,7 +32,7 @@ func TestHandleFileRead_MissingWorkspaceDir(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/api/file?path=/tmp/foo.tf", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/file?path=/tmp/foo.tf", nil)
 	w := httptest.NewRecorder()
 
 	s.handleFileRead(w, req)
@@ -46,7 +47,7 @@ func TestHandleFileRead_PathTraversal(t *testing.T) {
 
 	s := newTestServer()
 	// path escapes workspaceDir — must be rejected with 403
-	req := httptest.NewRequest(http.MethodGet,
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/file?path=/tmp/outside.tf&workspaceDir=/tmp/workspace", nil)
 	w := httptest.NewRecorder()
 
@@ -64,7 +65,7 @@ func TestHandleFileRead_NotFound(t *testing.T) {
 	missing := filepath.Join(dir, "missing.tf")
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodGet,
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/file?path="+missing+"&workspaceDir="+dir, nil)
 	w := httptest.NewRecorder()
 
@@ -87,7 +88,7 @@ func TestHandleFileRead_Success(t *testing.T) {
 	mustWriteFile(t, path, "# hello terraform")
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodGet,
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/file?path="+path+"&workspaceDir="+dir, nil)
 	w := httptest.NewRecorder()
 
@@ -117,7 +118,7 @@ func TestHandleFileSave_MissingPath(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPut, "/api/file",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/file",
 		strings.NewReader(`{"workspaceDir":"/tmp","content":"x"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -133,7 +134,7 @@ func TestHandleFileSave_MissingWorkspaceDir(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPut, "/api/file",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/file",
 		strings.NewReader(`{"path":"/tmp/foo.tf","content":"x"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -149,7 +150,7 @@ func TestHandleFileSave_PathTraversal(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPut, "/api/file",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/file",
 		strings.NewReader(`{"path":"/etc/passwd","workspaceDir":"/tmp/workspace","content":"x"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -165,7 +166,7 @@ func TestHandleFileSave_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPut, "/api/file",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/file",
 		strings.NewReader(`not-json`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -189,7 +190,7 @@ func TestHandleFileSave_Success(t *testing.T) {
 	body := `{"path":"` + path + `","workspaceDir":"` + dir + `","content":"# written by test"}`
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPut, "/api/file",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/file",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

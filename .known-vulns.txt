@@ -1,0 +1,10 @@
+# Known Vulnerabilities — Suppressed in Gate (package-level only)
+#
+# These are transitive dependency vulnerabilities with no upstream fix.
+# Our code does NOT call into any affected symbols (verified via govulncheck -scan symbol).
+# This file is reviewed periodically — remove entries when upstream fixes land.
+#
+# Format: VULN_ID | Module | Status | Date Added | Notes
+# ──────────────────────────────────────────────────────────────────────────────
+
+GO-2026-4514 | github.com/buger/jsonparser@v1.1.1 | No fix available | 2026-03-29 | DoS vuln. Transitive dep via cloudwego/eino (LLM framework). All eino-ext model providers depend on it. Cannot replace without forking eino. Symbol scan confirms our code does not call affected paths.

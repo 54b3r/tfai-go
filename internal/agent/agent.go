@@ -513,7 +513,7 @@ func buildWorkspaceContext(workspaceDir string) (string, error) {
 		if err != nil {
 			return nil
 		}
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(filepath.Clean(path)) //nolint:gosec // path comes from WalkDir, not user input; workspace root is validated upstream
 		if err != nil {
 			return nil // skip unreadable files
 		}

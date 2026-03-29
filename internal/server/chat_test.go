@@ -64,7 +64,7 @@ func TestHandleChat_MissingMessage(t *testing.T) {
 	t.Parallel()
 
 	s := newChatTestServer(nil)
-	req := httptest.NewRequest(http.MethodPost, "/api/chat",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat",
 		strings.NewReader(`{"workspaceDir":"/tmp"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -80,7 +80,7 @@ func TestHandleChat_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	s := newChatTestServer(nil)
-	req := httptest.NewRequest(http.MethodPost, "/api/chat",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat",
 		strings.NewReader(`not-json`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestHandleChat_RelativeWorkspaceDir(t *testing.T) {
 	t.Parallel()
 
 	s := newChatTestServer(nil)
-	req := httptest.NewRequest(http.MethodPost, "/api/chat",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat",
 		strings.NewReader(`{"message":"hi","workspaceDir":"relative/path"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -121,7 +121,7 @@ func TestHandleChat_Success(t *testing.T) {
 	q := &fakeQuerier{response: "resource \"aws_s3_bucket\" \"b\" {}"}
 	s := newChatTestServer(q)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chat",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat",
 		strings.NewReader(`{"message":"generate an S3 bucket"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -146,7 +146,7 @@ func TestHandleChat_FilesWritten(t *testing.T) {
 	q := &fakeQuerier{response: "ok", filesWritten: true}
 	s := newChatTestServer(q)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chat",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat",
 		strings.NewReader(`{"message":"generate","workspaceDir":"/tmp"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -168,7 +168,7 @@ func TestHandleChat_AgentError(t *testing.T) {
 	q := &fakeQuerier{err: fmt.Errorf("LLM unavailable")}
 	s := newChatTestServer(q)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chat",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat",
 		strings.NewReader(`{"message":"generate"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
