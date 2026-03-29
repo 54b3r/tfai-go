@@ -1,6 +1,6 @@
 module github.com/54b3r/tfai-go
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/cloudwego/eino v0.7.13
