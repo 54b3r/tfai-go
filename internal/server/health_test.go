@@ -41,7 +41,7 @@ func TestHandleHealth_OK(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/health", nil)
 	w := httptest.NewRecorder()
 
 	s.handleHealth(w, req)
@@ -73,7 +73,7 @@ func TestHandleReady_NoPingers(t *testing.T) {
 	t.Parallel()
 
 	s := newReadyTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/api/ready", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/ready", nil)
 	w := httptest.NewRecorder()
 
 	s.handleReady(w, req)
@@ -103,7 +103,7 @@ func TestHandleReady_AllHealthy(t *testing.T) {
 		&fakePinger{name: "llm", err: nil},
 		&fakePinger{name: "qdrant", err: nil},
 	)
-	req := httptest.NewRequest(http.MethodGet, "/api/ready", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/ready", nil)
 	w := httptest.NewRecorder()
 
 	s.handleReady(w, req)
@@ -142,7 +142,7 @@ func TestHandleReady_OneFailing(t *testing.T) {
 		&fakePinger{name: "llm", err: nil},
 		&fakePinger{name: "qdrant", err: errors.New("connection refused")},
 	)
-	req := httptest.NewRequest(http.MethodGet, "/api/ready", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/ready", nil)
 	w := httptest.NewRecorder()
 
 	s.handleReady(w, req)
@@ -185,7 +185,7 @@ func TestHandleReady_AllFailing(t *testing.T) {
 		&fakePinger{name: "llm", err: errors.New("timeout")},
 		&fakePinger{name: "qdrant", err: errors.New("connection refused")},
 	)
-	req := httptest.NewRequest(http.MethodGet, "/api/ready", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/ready", nil)
 	w := httptest.NewRecorder()
 
 	s.handleReady(w, req)
@@ -214,7 +214,7 @@ func TestHandleReady_ContentType(t *testing.T) {
 	t.Parallel()
 
 	s := newReadyTestServer(&fakePinger{name: "llm", err: errors.New("down")})
-	req := httptest.NewRequest(http.MethodGet, "/api/ready", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/ready", nil)
 	w := httptest.NewRecorder()
 
 	s.handleReady(w, req)

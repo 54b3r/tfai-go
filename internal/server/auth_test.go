@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +13,7 @@ func TestAuthMiddleware_Disabled(t *testing.T) {
 	t.Parallel()
 
 	h := authMiddleware("", okHandler)
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace", nil)
 	w := httptest.NewRecorder()
 
 	h.ServeHTTP(w, req)
@@ -28,7 +29,7 @@ func TestAuthMiddleware_MissingHeader(t *testing.T) {
 	t.Parallel()
 
 	h := authMiddleware("secret", okHandler)
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace", nil)
 	w := httptest.NewRecorder()
 
 	h.ServeHTTP(w, req)
@@ -47,7 +48,7 @@ func TestAuthMiddleware_WrongToken(t *testing.T) {
 	t.Parallel()
 
 	h := authMiddleware("secret", okHandler)
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace", nil)
 	req.Header.Set("Authorization", "Bearer wrong-token")
 	w := httptest.NewRecorder()
 
@@ -64,7 +65,7 @@ func TestAuthMiddleware_CorrectToken(t *testing.T) {
 	t.Parallel()
 
 	h := authMiddleware("secret", okHandler)
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 
@@ -81,7 +82,7 @@ func TestAuthMiddleware_CaseInsensitiveScheme(t *testing.T) {
 	t.Parallel()
 
 	h := authMiddleware("secret", okHandler)
-	req := httptest.NewRequest(http.MethodGet, "/api/file", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/file", nil)
 	req.Header.Set("Authorization", "bearer secret")
 	w := httptest.NewRecorder()
 
@@ -98,7 +99,7 @@ func TestAuthMiddleware_MalformedHeader(t *testing.T) {
 	t.Parallel()
 
 	h := authMiddleware("secret", okHandler)
-	req := httptest.NewRequest(http.MethodGet, "/api/file", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/file", nil)
 	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
 	w := httptest.NewRecorder()
 
@@ -128,7 +129,7 @@ func TestBearerToken(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 		if tc.header != "" {
 			req.Header.Set("Authorization", tc.header)
 		}

@@ -17,7 +17,8 @@ const (
 
 	// DefaultMaxContextTokens is the default input context budget in tokens.
 	// Conservative enough to fit within 8k-context models (Llama 3 8B, GPT-3.5)
-	// while leaving room for the output. Override via Config.MaxContextTokens.
+	// while leaving room for the output. Override via MAX_CONTEXT_TOKENS env var
+	// or Config.MaxContextTokens.
 	DefaultMaxContextTokens = 6000
 )
 

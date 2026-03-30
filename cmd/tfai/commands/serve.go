@@ -106,10 +106,11 @@ Examples:
 			defer closeRetriever()
 
 			tfAgent, err := agent.New(ctx, &agent.Config{
-				ChatModel: chatModel,
-				Tools:     agentTools,
-				History:   historyStore,
-				Retriever: retriever,
+				ChatModel:        chatModel,
+				Tools:            agentTools,
+				History:          historyStore,
+				Retriever:        retriever,
+				MaxContextTokens: getEnvInt("MAX_CONTEXT_TOKENS", 0),
 			})
 			if err != nil {
 				return fmt.Errorf("serve: failed to initialise agent: %w", err)

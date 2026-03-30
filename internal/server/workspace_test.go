@@ -18,6 +18,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -140,8 +141,8 @@ func TestHandleWorkspace_MissingDir(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	// httptest.NewRequest(method, url, body) — body is nil for GET requests.
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace", nil)
+	// httptest.NewRequestWithContext(ctx, method, url, body) — body is nil for GET requests.
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace", nil)
 	// NewRecorder() acts as the ResponseWriter. After the handler runs,
 	// w.Code holds the HTTP status and w.Body holds the response body.
 	w := httptest.NewRecorder()
@@ -161,7 +162,7 @@ func TestHandleWorkspace_RelativePath(t *testing.T) {
 
 	s := newTestServer()
 	// Embed the query parameter directly in the URL string.
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir=relative/path", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace?dir=relative/path", nil)
 	w := httptest.NewRecorder()
 
 	s.handleWorkspace(w, req)
@@ -178,7 +179,7 @@ func TestHandleWorkspace_NotFound(t *testing.T) {
 
 	s := newTestServer()
 	// The long random suffix makes accidental collision essentially impossible.
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir=/tmp/tfai-does-not-exist-xyz-abc", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace?dir=/tmp/tfai-does-not-exist-xyz-abc", nil)
 	w := httptest.NewRecorder()
 
 	s.handleWorkspace(w, req)
@@ -205,7 +206,7 @@ func TestHandleWorkspace_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+dir, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace?dir="+dir, nil)
 	w := httptest.NewRecorder()
 
 	s.handleWorkspace(w, req)
@@ -263,7 +264,7 @@ func TestHandleWorkspace_TFWorkspace(t *testing.T) {
 	mustWriteFile(t, filepath.Join(dir, "modules", "main.tf"), "# mod") // file inside subdir
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+dir, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace?dir="+dir, nil)
 	w := httptest.NewRecorder()
 
 	s.handleWorkspace(w, req)
@@ -320,7 +321,7 @@ func TestHandleWorkspaceCreate_MissingDir(t *testing.T) {
 
 	// For POST requests we pass a body. strings.NewReader converts a string
 	// into an io.Reader, which is what http.Request.Body expects.
-	req := httptest.NewRequest(http.MethodPost, "/api/workspace/create",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/workspace/create",
 		strings.NewReader(`{}`))
 	// Always set Content-Type for JSON POST requests.
 	req.Header.Set("Content-Type", "application/json")
@@ -339,7 +340,7 @@ func TestHandleWorkspaceCreate_RelativePath(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPost, "/api/workspace/create",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/workspace/create",
 		strings.NewReader(`{"dir":"relative/path"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -358,7 +359,7 @@ func TestHandleWorkspaceCreate_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPost, "/api/workspace/create",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/workspace/create",
 		strings.NewReader(`not-json`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -389,7 +390,7 @@ func TestHandleWorkspaceCreate_Success(t *testing.T) {
 	body := `{"dir":"` + dir + `","description":"S3 bucket"}`
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPost, "/api/workspace/create",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/workspace/create",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -437,7 +438,7 @@ func TestHandleWorkspaceCreate_NonExistentDir(t *testing.T) {
 	body := `{"dir":"` + dir + `"}`
 
 	s := newTestServer()
-	req := httptest.NewRequest(http.MethodPost, "/api/workspace/create",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/workspace/create",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -513,7 +514,7 @@ func TestHandleWorkspace_WorkspaceRootConfinement(t *testing.T) {
 
 	t.Run("inside root — allowed", func(t *testing.T) {
 		t.Parallel()
-		req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+allowed, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace?dir="+allowed, nil)
 		w := httptest.NewRecorder()
 		s.handleWorkspace(w, req)
 		if w.Code != http.StatusOK {
@@ -523,7 +524,7 @@ func TestHandleWorkspace_WorkspaceRootConfinement(t *testing.T) {
 
 	t.Run("outside root — rejected", func(t *testing.T) {
 		t.Parallel()
-		req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir=/tmp", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace?dir=/tmp", nil)
 		w := httptest.NewRecorder()
 		s.handleWorkspace(w, req)
 		if w.Code != http.StatusBadRequest {
@@ -534,7 +535,7 @@ func TestHandleWorkspace_WorkspaceRootConfinement(t *testing.T) {
 	t.Run("traversal path — rejected", func(t *testing.T) {
 		t.Parallel()
 		traversal := allowed + "/../../etc"
-		req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+traversal, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace?dir="+traversal, nil)
 		w := httptest.NewRecorder()
 		s.handleWorkspace(w, req)
 		if w.Code != http.StatusBadRequest {
@@ -545,7 +546,7 @@ func TestHandleWorkspace_WorkspaceRootConfinement(t *testing.T) {
 	t.Run("no workspace root — no confinement", func(t *testing.T) {
 		t.Parallel()
 		s2 := newTestServer() // WorkspaceRoot is empty
-		req := httptest.NewRequest(http.MethodGet, "/api/workspace?dir="+allowed, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/workspace?dir="+allowed, nil)
 		w := httptest.NewRecorder()
 		s2.handleWorkspace(w, req)
 		if w.Code != http.StatusOK {
@@ -568,7 +569,7 @@ func TestHandleWorkspaceCreate_WorkspaceRootConfinement(t *testing.T) {
 	t.Run("inside root — allowed", func(t *testing.T) {
 		t.Parallel()
 		body := `{"dir":"` + allowed + `"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/workspace/create", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/workspace/create", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		s.handleWorkspaceCreate(w, req)
@@ -580,7 +581,7 @@ func TestHandleWorkspaceCreate_WorkspaceRootConfinement(t *testing.T) {
 	t.Run("outside root — rejected", func(t *testing.T) {
 		t.Parallel()
 		body := `{"dir":"/tmp"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/workspace/create", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/workspace/create", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		s.handleWorkspaceCreate(w, req)
@@ -605,7 +606,7 @@ func TestHandleFileRead_WorkspaceRootConfinement(t *testing.T) {
 	t.Run("inside root — allowed", func(t *testing.T) {
 		t.Parallel()
 		url := "/api/file?workspaceDir=" + allowed + "&path=" + filepath.Join(allowed, "main.tf")
-		req := httptest.NewRequest(http.MethodGet, url, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 		w := httptest.NewRecorder()
 		s.handleFileRead(w, req)
 		if w.Code != http.StatusOK {
@@ -616,7 +617,7 @@ func TestHandleFileRead_WorkspaceRootConfinement(t *testing.T) {
 	t.Run("workspaceDir outside root — rejected", func(t *testing.T) {
 		t.Parallel()
 		url := "/api/file?workspaceDir=/tmp&path=/tmp/main.tf"
-		req := httptest.NewRequest(http.MethodGet, url, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 		w := httptest.NewRecorder()
 		s.handleFileRead(w, req)
 		if w.Code != http.StatusForbidden {
@@ -639,7 +640,7 @@ func TestHandleFileSave_WorkspaceRootConfinement(t *testing.T) {
 	t.Run("inside root — allowed", func(t *testing.T) {
 		t.Parallel()
 		body := `{"workspaceDir":"` + allowed + `","path":"` + filepath.Join(allowed, "main.tf") + `","content":"# tf"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/file", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/file", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		s.handleFileSave(w, req)
@@ -651,7 +652,7 @@ func TestHandleFileSave_WorkspaceRootConfinement(t *testing.T) {
 	t.Run("workspaceDir outside root — rejected", func(t *testing.T) {
 		t.Parallel()
 		body := `{"workspaceDir":"/tmp","path":"/tmp/main.tf","content":"# tf"}`
-		req := httptest.NewRequest(http.MethodPut, "/api/file", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/file", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		s.handleFileSave(w, req)

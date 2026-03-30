@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ func TestRateLimit_AllowsUnderLimit(t *testing.T) {
 	h := rl.middleware(okHandler)
 
 	for i := range 5 {
-		req := httptest.NewRequest(http.MethodGet, "/api/file", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/file", nil)
 		req.RemoteAddr = "127.0.0.1:12345"
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -47,7 +48,7 @@ func TestRateLimit_BlocksOverLimit(t *testing.T) {
 
 	got429 := false
 	for i := range 10 {
-		req := httptest.NewRequest(http.MethodPost, "/api/chat", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat", nil)
 		req.RemoteAddr = "10.0.0.1:9999"
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -73,12 +74,12 @@ func TestRateLimit_RetryAfterHeader(t *testing.T) {
 	h := rl.middleware(okHandler)
 
 	// First request consumes the single burst token.
-	req := httptest.NewRequest(http.MethodPost, "/api/chat", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat", nil)
 	req.RemoteAddr = "10.0.0.2:1234"
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
 	// Second request must be rejected with Retry-After.
-	req2 := httptest.NewRequest(http.MethodPost, "/api/chat", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/chat", nil)
 	req2.RemoteAddr = "10.0.0.2:1234"
 	w2 := httptest.NewRecorder()
 	h.ServeHTTP(w2, req2)
@@ -103,13 +104,13 @@ func TestRateLimit_PerIPIsolation(t *testing.T) {
 
 	// Exhaust IP A.
 	for range 5 {
-		req := httptest.NewRequest(http.MethodGet, "/api/file", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/file", nil)
 		req.RemoteAddr = "192.168.1.1:1111"
 		h.ServeHTTP(httptest.NewRecorder(), req)
 	}
 
 	// IP B should still be allowed.
-	req := httptest.NewRequest(http.MethodGet, "/api/file", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/file", nil)
 	req.RemoteAddr = "192.168.1.2:2222"
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -134,7 +135,7 @@ func TestClientIP(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 		req.RemoteAddr = tc.remoteAddr
 		got := clientIP(req)
 		if got != tc.wantIP {

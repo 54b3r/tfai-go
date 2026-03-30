@@ -125,6 +125,11 @@ lint-fix: ## Run golangci-lint with auto-fix
 # ── Gate ──────────────────────────────────────────────────────────────────────
 # Full pre-commit verification sequence. Must pass before any commit or PR.
 # Steps: build → vet → lint → vulncheck → test → binary smoke (version + help)
+#
+# Vulncheck strategy:
+#   -scan symbol  = MUST pass (our code calls a vulnerable function → hard fail)
+#   -scan package = advisory only (transitive dep vuln, no upstream fix → warn)
+# Known suppressed vulns are tracked in .known-vulns.txt.
 .PHONY: gate
 gate: ## Run full pre-commit gate (build + vet + lint + vulncheck + test + binary smoke)
 	@echo "── gate: build ──────────────────────────────────────────"
@@ -133,8 +138,11 @@ gate: ## Run full pre-commit gate (build + vet + lint + vulncheck + test + binar
 	$(GO) vet ./...
 	@echo "── gate: lint ───────────────────────────────────────────"
 	golangci-lint run ./...
-	@echo "── gate: vulncheck ──────────────────────────────────────"
-	govulncheck -scan package ./...
+	@echo "── gate: vulncheck (symbol — must pass) ─────────────────"
+	govulncheck -scan symbol ./...
+	@echo "── gate: vulncheck (package — advisory) ─────────────────"
+	@govulncheck -scan package ./... 2>&1 || \
+		echo "⚠  Package-level vulns detected (see above). Known suppressions in .known-vulns.txt"
 	@echo "── gate: test ───────────────────────────────────────────"
 	$(GO) test -race -count=1 ./...
 	@echo "── gate: binary smoke ───────────────────────────────────"

@@ -63,8 +63,9 @@ Examples:
 			}
 
 			tfAgent, err := agent.New(ctx, &agent.Config{
-				ChatModel: models.ChatModel,
-				Tools:     agentTools,
+				ChatModel:        models.ChatModel,
+				Tools:            agentTools,
+				MaxContextTokens: getEnvInt("MAX_CONTEXT_TOKENS", 0),
 			})
 			if err != nil {
 				return fmt.Errorf("diagnose: failed to initialise agent: %w", err)
