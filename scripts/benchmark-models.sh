@@ -243,7 +243,11 @@ run_benchmark() {
     local agent_ttft
     agent_ttft=$(echo "$output" | grep -o 'ttft=[0-9.]*[a-z]*' | head -1 | cut -d= -f2 || echo "")
 
-    # Write results
+    # Save full model response for quality comparison
+    local responsefile="${outfile%.json}.response.txt"
+    printf '%s\n' "$output" > "$responsefile"
+
+    # Write results (response_file points to the companion text file)
     cat > "$outfile" <<ENDJSON
 {
     "task": "${task}",
@@ -262,7 +266,8 @@ run_benchmark() {
         "max_tokens": ${MODEL_MAX_TOKENS},
         "temperature": 0.2,
         "max_context_tokens": ${MAX_CONTEXT_TOKENS}
-    }
+    },
+    "response_file": "$(basename "$responsefile")"
 }
 ENDJSON
 
